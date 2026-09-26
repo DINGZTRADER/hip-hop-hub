@@ -11,8 +11,9 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "node -r esbuild-register scripts/seed.ts"
+    "db:seed": "npx tsx scripts/seed.ts"
   },
+
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
     "bcryptjs": "^2.4.3",
@@ -34,10 +35,9 @@
     "@types/react-dom": "^19.0.3",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.30.4",
-    "esbuild": "^0.25.0",
-    "esbuild-register": "^3.6.0",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3"
+
   }
 }
