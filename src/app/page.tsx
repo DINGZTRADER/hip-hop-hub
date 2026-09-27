@@ -2,7 +2,7 @@ import React from "react";
 import { getArtists, getRotatingHeroClips } from "@/lib/data-service";
 import { HeroVideoReel } from "@/components/hero/HeroVideoReel";
 import { ArtistCard } from "@/components/artist/ArtistCard";
-import { Search, MapPin, Music, Sparkles, Flame, ShieldCheck } from "lucide-react";
+import { Search, MapPin, Music, Sparkles, Flame, ShieldCheck, Clapperboard, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 interface PageProps {
@@ -38,6 +38,16 @@ export default async function HomePage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen pb-20">
+      <section className="max-w-7xl mx-auto px-4 lg:px-8 pt-7">
+        <Link href="/cypher-tv" className="group flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-3xl border border-ug-gold/40 bg-gradient-to-r from-[#25101a] via-[#1a1620] to-[#171924] p-6 md:p-8 shadow-xl shadow-ug-gold/5 hover:border-ug-gold transition">
+          <div>
+            <p className="flex items-center gap-2 text-xs uppercase tracking-widest font-black text-ug-gold"><Clapperboard size={17} /> New: Cypher TV</p>
+            <h2 className="mt-2 text-2xl md:text-4xl font-black text-white">Ugandan hip-hop, on repeat.</h2>
+            <p className="mt-1 text-sm text-ug-muted">Watch eight music videos in a continuous 30-second rotation.</p>
+          </div>
+          <span className="inline-flex items-center gap-2 self-start sm:self-center rounded-full bg-ug-gold px-6 py-3 text-sm font-black text-black">Watch now <ArrowRight size={17} /></span>
+        </Link>
+      </section>
       {/* Hero Showcase Section */}
       <section className="max-w-7xl mx-auto px-4 lg:px-8 pt-6 pb-10">
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">

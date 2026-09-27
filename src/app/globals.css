@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes cypher-logo-roll { to { transform: translateX(-50%); } }
+.cypher-logo-track { animation: cypher-logo-roll 35s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .cypher-logo-track { animation: none; } }
+
 :root {
   --background: #08090C;
   --foreground: #EDEDED;

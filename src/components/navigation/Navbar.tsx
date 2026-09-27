@@ -2,21 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Disc3, User, LogOut, LayoutDashboard, Menu, X, PlusCircle, Sparkles } from "lucide-react";
+import { Disc3, User, LogOut, LayoutDashboard, Menu, X, PlusCircle, Sparkles, Clapperboard } from "lucide-react";
 
 export function Navbar() {
   const [session, setSession] = useState<any | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { cache: "no-store", credentials: "same-origin" })
       .then((res) => res.json())
       .then((data) => {
-        if (data.authenticated) {
-          setSession(data.user);
-        }
+        setSession(data.authenticated ? data.user : null);
       })
-      .catch(() => {});
+      .catch(() => setSession(null))
+      .finally(() => setSessionLoading(false));
   }, []);
 
   const handleLogout = async () => {
@@ -54,6 +54,9 @@ export function Navbar() {
           <Link href="/pricing" className="hover:text-ug-gold transition flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-ug-gold" />
             <span>Tiers & Monetization</span>
+          </Link>
+          <Link href="/cypher-tv" className="hover:text-ug-gold transition flex items-center gap-1.5">
+            <Clapperboard className="w-4 h-4 text-ug-gold" /> Cypher TV
           </Link>
           {session?.role === "ARTIST" && (
             <Link
@@ -99,12 +102,15 @@ export function Navbar() {
 
               <button
                 onClick={handleLogout}
-                className="p-2 rounded-full hover:bg-ug-card text-ug-muted hover:text-white transition"
-                title="Logout"
+                className="flex items-center gap-2 px-3 py-2 rounded-full hover:bg-ug-card text-ug-muted hover:text-white transition text-xs font-bold"
+                title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
               </button>
             </div>
+          ) : sessionLoading ? (
+            <span className="h-9 w-40 animate-pulse rounded-full bg-ug-card" aria-label="Checking sign-in status" />
           ) : (
             <div className="flex items-center gap-2">
               <Link
@@ -150,6 +156,9 @@ export function Navbar() {
           >
             Tiers & Monetization
           </Link>
+          <Link href="/cypher-tv" onClick={() => setMobileMenuOpen(false)} className="block text-sm font-semibold text-gray-300 hover:text-ug-gold">
+            Cypher TV
+          </Link>
           {session ? (
             <div className="pt-2 border-t border-ug-border space-y-2">
               <p className="text-xs text-ug-muted">Signed in as {session.name}</p>
@@ -174,9 +183,11 @@ export function Navbar() {
                 onClick={handleLogout}
                 className="text-xs text-ug-red hover:underline block pt-1"
               >
-                Log Out
+                Sign Out
               </button>
             </div>
+          ) : sessionLoading ? (
+            <p className="text-xs text-ug-muted">Checking sign-in status...</p>
           ) : (
             <div className="pt-2 border-t border-ug-border flex flex-col gap-2">
               <Link
