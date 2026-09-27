@@ -1,55 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processPurchase } from "@/lib/data-service";
-import { handleApiError, createErrorResponse } from "@/lib/errors";
+import { and, eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
+import { requireDb, schema } from "@/db";
+import { beginPurchase, reconcilePurchase } from "@/lib/payments";
+import { createErrorResponse, handleApiError } from "@/lib/errors";
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return createErrorResponse("UNAUTHORIZED", "Sign in to buy a track.", 401);
     const body = await request.json();
+    const method = body.paymentMethod;
+    if (typeof body.trackId !== "string" ||
+      !["MTN_MOMO", "AIRTEL_MONEY", "CARD"].includes(method))
+      return createErrorResponse("VALIDATION_ERROR", "Choose a track and payment method.", 400);
+    const phone = typeof body.phoneNumber === "string" ? body.phoneNumber.trim() : "";
+    if (method !== "CARD" && !/^(\+256|0)7\d{8}$/.test(phone))
+      return createErrorResponse("VALIDATION_ERROR", "Enter a valid Uganda mobile money number.", 400);
+    const result = await beginPurchase({ buyerId: session.userId, email: session.email,
+      name: session.name, trackId: body.trackId, method, phone: phone || undefined });
+    return NextResponse.json({ success: true, status: "PENDING", ...result }, { status: 201 });
+  } catch (error) { return handleApiError(error); }
+}
 
-    const { trackId, paymentMethod, phoneNumber } = body;
-
-    if (!trackId) {
-      return createErrorResponse("MISSING_TRACK_ID", "Track ID is required.", 400);
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session) return createErrorResponse("UNAUTHORIZED", "Sign in required.", 401);
+    const p = new URL(request.url).searchParams;
+    const reference = p.get("reference");
+    if (!reference) return createErrorResponse("VALIDATION_ERROR", "Purchase reference required.", 400);
+    const db = requireDb();
+    let [purchase] = await db.select().from(schema.purchases).where(and(
+      eq(schema.purchases.paymentReference, reference), eq(schema.purchases.buyerId, session.userId))).limit(1);
+    if (!purchase) return createErrorResponse("PURCHASE_NOT_FOUND", "Purchase not found.", 404);
+    const transactionId = Number(p.get("transaction_id"));
+    if (purchase.status === "PENDING" && Number.isSafeInteger(transactionId) && transactionId > 0) {
+      await reconcilePurchase(reference, transactionId);
+      [purchase] = await db.select().from(schema.purchases)
+        .where(eq(schema.purchases.id, purchase.id)).limit(1);
     }
-
-    if (!paymentMethod || !["MTN_MOMO", "AIRTEL_MONEY", "CARD"].includes(paymentMethod)) {
-      return createErrorResponse(
-        "INVALID_PAYMENT_METHOD",
-        "Valid payment method is required: MTN_MOMO, AIRTEL_MONEY, or CARD.",
-        400
-      );
-    }
-
-    if ((paymentMethod === "MTN_MOMO" || paymentMethod === "AIRTEL_MONEY") && !phoneNumber) {
-      return createErrorResponse(
-        "PHONE_NUMBER_REQUIRED",
-        "Mobile money phone number (e.g., 077... or 075...) is required for Uganda Mobile Money.",
-        400
-      );
-    }
-
-    // Generate unique payment transaction reference (e.g., MTN-UG-1234567)
-    const ref = `${paymentMethod.replace("_", "-")}-UG-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
-
-    const purchase = await processPurchase({
-      buyerId: session?.userId,
-      trackId,
-      paymentMethod,
-      paymentReference: ref,
-    });
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Payment confirmed. Download token generated.",
-        purchase,
-        downloadUrl: `/api/tracks/${trackId}/download?token=${purchase.downloadToken}`,
-      },
-      { status: 201 }
-    );
-  } catch (error) {
-    return handleApiError(error);
-  }
+    return NextResponse.json({ status: purchase.status, reference,
+      downloadUrl: purchase.status === "COMPLETED"
+        ? "/api/tracks/" + purchase.trackId + "/download?token=" + purchase.downloadToken : null },
+      { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) { return handleApiError(error); }
 }

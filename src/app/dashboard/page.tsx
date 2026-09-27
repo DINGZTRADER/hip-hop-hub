@@ -47,9 +47,9 @@ export default function ArtistDashboardPage() {
     title: "",
     durationSeconds: 210,
     priceUgx: 3000,
-    fileUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-    previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-    filesizeBytes: 8500000, // ~8.5MB
+    fileUrl: "",
+    previewUrl: "",
+    filesizeBytes: 0,
   });
 
   useEffect(() => {
@@ -214,22 +214,13 @@ export default function ArtistDashboardPage() {
           </div>
 
           <p className="text-3xl font-black text-white">
-            UGX {wallet?.currentBalanceUgx ? wallet.currentBalanceUgx.toLocaleString() : "5,856,000"}
+            UGX {wallet ? wallet.currentBalanceUgx.toLocaleString() : "Unavailable"}
           </p>
           <p className="text-xs text-ug-muted mt-1">
-            Total Earned: UGX {wallet?.totalEarnedUgx ? wallet.totalEarnedUgx.toLocaleString() : "7,500,000"}
+            Total Earned: UGX {wallet ? wallet.totalEarnedUgx.toLocaleString() : "Unavailable"}
           </p>
 
-          <button
-            onClick={() =>
-              alert(
-                "Withdrawal request initiated to your registered Mobile Money number (MTN / Airtel). Funds arrive within 5 minutes via Instant MoMo API."
-              )
-            }
-            className="mt-5 w-full bg-emerald-500 hover:bg-emerald-600 text-black font-extrabold text-xs uppercase py-3 rounded-xl transition shadow-lg"
-          >
-            Withdraw to MTN / Airtel MoMo
-          </button>
+<p className="mt-5 text-xs text-ug-muted">Payout requests are currently unavailable.</p>
         </div>
 
         {/* 500MB Storage Quota Card */}

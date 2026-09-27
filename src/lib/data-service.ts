@@ -1,20 +1,38 @@
-import { MOCK_ARTISTS, MOCK_USERS, MOCK_WALLETS } from "./mock-data";
-import { Artist, Track, ServiceBooking, Purchase, ArtistWallet, WalletTransaction } from "@/types";
+import { and, desc, eq, ilike, isNull, lt, or, sql } from "drizzle-orm";
+import { requireDb, schema } from "@/db";
+import { Artist, Track, ServiceBooking, ArtistWallet, WalletTransaction } from "@/types";
 import { decodeCursor, encodeCursor, PaginatedResult } from "./pagination";
 import { AppError } from "./errors";
-import { getDb, schema } from "@/db";
-import { eq, and, isNull, desc, lt, or } from "drizzle-orm";
+import { validateMasterUrl, validatePreviewUrl } from "./media";
 
-const MAX_FREE_STORAGE_BYTES = 500 * 1024 * 1024; // 500MB in bytes (524,288,000)
-const PLATFORM_COMMISSION_PERCENT = 0.20; // 20% to HipHop-UG
+const FREE_STORAGE_BYTES = 500 * 1024 * 1024;
+const PRO_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 
-// In-memory active state store for immediate reactivity
-let artistsStore: Artist[] = JSON.parse(JSON.stringify(MOCK_ARTISTS));
-let usersStore = JSON.parse(JSON.stringify(MOCK_USERS));
-let walletsStore: Record<string, ArtistWallet> = JSON.parse(JSON.stringify(MOCK_WALLETS));
-let purchasesStore: Purchase[] = [];
-let bookingsStore: ServiceBooking[] = [];
-let walletTransactionsStore: WalletTransaction[] = [];
+function artistFromRow(row: typeof schema.artists.$inferSelect): Artist {
+  return {
+    id: row.id, userId: row.userId, stageName: row.stageName, realName: row.realName,
+    dob: row.dob, bio: row.bio, region: row.region, subgenre: row.subgenre,
+    socials: { instagram: row.socialInstagram, x: row.socialX, tiktok: row.socialTiktok,
+      youtube: row.socialYoutube, facebook: row.socialFacebook },
+    phoneForBookings: row.phoneForBookings, bookingEmail: row.bookingEmail,
+    heroVideoMp4Url: row.heroVideoMp4Url, heroVideoDurationSecs: Number(row.heroVideoDurationSecs || 10),
+    storageUsedBytes: row.storageUsedBytes, subscriptionTier: row.subscriptionTier,
+    subscriptionExpiresAt: row.subscriptionExpiresAt?.toISOString(), isVerified: row.isVerified,
+    createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt?.toISOString(),
+  };
+}
+
+function trackFromRow(row: typeof schema.tracks.$inferSelect, stageName?: string): Track {
+  return {
+    id: row.id, artistId: row.artistId, title: row.title, durationSeconds: row.durationSeconds,
+    fileUrl: "", previewUrl: row.previewUrl, filesizeBytes: row.filesizeBytes,
+    priceUgx: row.priceUgx, priceUsd: Number(row.priceUsd), playCount: row.playCount,
+    downloadCount: row.downloadCount, isPublished: row.isPublished,
+    createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt?.toISOString(), artistStageName: stageName,
+  };
+}
 
 export interface GetArtistsParams {
   cursor?: string | null;
@@ -25,634 +43,241 @@ export interface GetArtistsParams {
 }
 
 export async function getArtists(params: GetArtistsParams): Promise<PaginatedResult<Artist>> {
-  const limit = Math.min(Math.max(params.limit || 8, 1), 50);
-  const db = getDb();
-
-  // If connected to Neon Postgres:
-  if (db) {
-    try {
-      const cursorData = decodeCursor(params.cursor);
-      
-      let query = db
-        .select()
-        .from(schema.artists)
-        .where(isNull(schema.artists.deletedAt))
-        .orderBy(desc(schema.artists.createdAt), desc(schema.artists.id))
-        .limit(limit + 1);
-
-      // Execute and convert to standard format
-      const rows = await query;
-      const formatted: Artist[] = rows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        stageName: r.stageName,
-        realName: r.realName,
-        dob: r.dob,
-        bio: r.bio,
-        region: r.region,
-        subgenre: r.subgenre,
-        socials: {
-          instagram: r.socialInstagram,
-          x: r.socialX,
-          tiktok: r.socialTiktok,
-          youtube: r.socialYoutube,
-          facebook: r.socialFacebook,
-        },
-        phoneForBookings: r.phoneForBookings,
-        bookingEmail: r.bookingEmail,
-        heroVideoMp4Url: r.heroVideoMp4Url,
-        heroVideoDurationSecs: Number(r.heroVideoDurationSecs || 10),
-        storageUsedBytes: r.storageUsedBytes,
-        subscriptionTier: r.subscriptionTier,
-        isVerified: r.isVerified,
-        createdAt: r.createdAt.toISOString(),
-        updatedAt: r.updatedAt.toISOString(),
-      }));
-
-      const hasMore = formatted.length > limit;
-      const data = hasMore ? formatted.slice(0, limit) : formatted;
-      let nextCursor: string | null = null;
-      if (hasMore && data.length > 0) {
-        const last = data[data.length - 1];
-        nextCursor = encodeCursor({ id: last.id, createdAt: last.createdAt });
-      }
-
-      return { data, nextCursor, hasMore, limit };
-    } catch (e) {
-      console.warn("Neon query fallback to mock store:", e);
-    }
+  const db = requireDb();
+  const limit = Math.min(Math.max(Number.isFinite(params.limit) ? params.limit! : 8, 1), 50);
+  const cursor = decodeCursor(params.cursor);
+  const filters = [isNull(schema.artists.deletedAt)];
+  if (params.region && params.region !== "All") filters.push(eq(schema.artists.region, params.region));
+  if (params.subgenre && params.subgenre !== "All") filters.push(ilike(schema.artists.subgenre, "%" + params.subgenre + "%"));
+  if (params.search) filters.push(or(ilike(schema.artists.stageName, "%" + params.search + "%"),
+    ilike(schema.artists.realName, "%" + params.search + "%"))!);
+  if (cursor) {
+    const date = new Date(cursor.createdAt);
+    if (Number.isNaN(date.getTime())) throw new AppError("INVALID_CURSOR", "Invalid pagination cursor", 400);
+    filters.push(or(lt(schema.artists.createdAt, date),
+      and(eq(schema.artists.createdAt, date), lt(schema.artists.id, cursor.id)))!);
   }
-
-  // Fast In-Memory Store / Fallback
-  let filtered = artistsStore.filter((a) => !a.deletedAt);
-
-  if (params.region && params.region !== "All") {
-    filtered = filtered.filter((a) => a.region.toLowerCase() === params.region!.toLowerCase());
-  }
-
-  if (params.subgenre && params.subgenre !== "All") {
-    filtered = filtered.filter((a) => a.subgenre.toLowerCase().includes(params.subgenre!.toLowerCase()));
-  }
-
-  if (params.search) {
-    const q = params.search.toLowerCase();
-    filtered = filtered.filter(
-      (a) =>
-        a.stageName.toLowerCase().includes(q) ||
-        a.realName.toLowerCase().includes(q) ||
-        (a.bio && a.bio.toLowerCase().includes(q))
-    );
-  }
-
-  // Sort by createdAt desc, then id desc
-  filtered.sort((a, b) => {
-    const dateComp = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    if (dateComp !== 0) return dateComp;
-    return b.id.localeCompare(a.id);
-  });
-
-  // Apply Cursor
-  const cursorData = decodeCursor(params.cursor);
-  if (cursorData) {
-    const cursorTime = new Date(cursorData.createdAt).getTime();
-    const startIndex = filtered.findIndex((item) => {
-      const itemTime = new Date(item.createdAt).getTime();
-      return itemTime < cursorTime || (itemTime === cursorTime && item.id < cursorData.id);
-    });
-    if (startIndex !== -1) {
-      filtered = filtered.slice(startIndex);
-    } else {
-      filtered = [];
-    }
-  }
-
-  const hasMore = filtered.length > limit;
-  const data = hasMore ? filtered.slice(0, limit) : filtered;
-  let nextCursor: string | null = null;
-  if (hasMore && data.length > 0) {
-    const last = data[data.length - 1];
-    nextCursor = encodeCursor({ id: last.id, createdAt: last.createdAt });
-  }
-
-  return {
-    data,
-    nextCursor,
-    hasMore,
-    limit,
-  };
+  const rows = await db.select().from(schema.artists).where(and(...filters))
+    .orderBy(desc(schema.artists.createdAt), desc(schema.artists.id)).limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const data = rows.slice(0, limit).map(artistFromRow);
+  const last = data[data.length - 1];
+  return { data, limit, hasMore, nextCursor: hasMore && last ? encodeCursor({ id: last.id, createdAt: last.createdAt }) : null };
 }
 
-export async function getRotatingHeroClips(): Promise<Array<{
-  artistId: string;
-  stageName: string;
-  region: string;
-  subgenre: string;
-  heroVideoMp4Url: string;
-  avatarUrl?: string;
-  trackTitle?: string;
-}>> {
-  const artistsWithVideos = artistsStore.filter(
-    (a) => !a.deletedAt && a.heroVideoMp4Url && a.heroVideoMp4Url.length > 5
-  );
+export async function getRotatingHeroClips() {
+  const db = requireDb();
+  const rows = await db.select().from(schema.artists)
+    .where(and(isNull(schema.artists.deletedAt), sql`${schema.artists.heroVideoMp4Url} IS NOT NULL`))
+    .orderBy(desc(schema.artists.createdAt)).limit(30);
+  return rows.map(a => ({ artistId: a.id, stageName: a.stageName, region: a.region,
+    subgenre: a.subgenre, heroVideoMp4Url: a.heroVideoMp4Url! }));
+}
 
-  return artistsWithVideos.map((a) => ({
-    artistId: a.id,
-    stageName: a.stageName,
-    region: a.region,
-    subgenre: a.subgenre,
-    heroVideoMp4Url: a.heroVideoMp4Url!,
-    avatarUrl: a.tracks?.[0]?.previewUrl,
-    trackTitle: a.tracks?.[0]?.title,
-  }));
+async function loadArtist(row: typeof schema.artists.$inferSelect): Promise<Artist> {
+  const db = requireDb();
+  const [trackRows, videoRows, flyerRows, freestyleRows, serviceRows] = await Promise.all([
+    db.select().from(schema.tracks).where(and(eq(schema.tracks.artistId, row.id), isNull(schema.tracks.deletedAt), eq(schema.tracks.isPublished, true))),
+    db.select().from(schema.artistYoutubeVideos).where(and(eq(schema.artistYoutubeVideos.artistId, row.id), isNull(schema.artistYoutubeVideos.deletedAt))),
+    db.select().from(schema.eventFlyers).where(and(eq(schema.eventFlyers.artistId, row.id), isNull(schema.eventFlyers.deletedAt))),
+    db.select().from(schema.freestyles).where(and(eq(schema.freestyles.artistId, row.id), isNull(schema.freestyles.deletedAt))),
+    db.select().from(schema.artistServices).where(and(eq(schema.artistServices.artistId, row.id), isNull(schema.artistServices.deletedAt))),
+  ]);
+  return { ...artistFromRow(row),
+    tracks: trackRows.map(t => trackFromRow(t, row.stageName)),
+    youtubeVideos: videoRows.map(v => ({ id: v.id, artistId: v.artistId, youtubeUrl: v.youtubeUrl,
+      videoTitle: v.videoTitle, orderIndex: v.orderIndex, createdAt: v.createdAt.toISOString() })),
+    eventFlyers: flyerRows.map(f => ({ id: f.id, artistId: f.artistId, title: f.title,
+      eventDate: f.eventDate.toISOString(), venue: f.venue, city: f.city, flyerImageUrl: f.flyerImageUrl,
+      ticketLink: f.ticketLink, createdAt: f.createdAt.toISOString(), updatedAt: f.updatedAt.toISOString() })),
+    freestyles: freestyleRows.map(f => ({ id: f.id, artistId: f.artistId, title: f.title, mediaType: f.mediaType,
+      mediaUrl: f.mediaUrl, thumbnailUrl: f.thumbnailUrl, durationSeconds: f.durationSeconds,
+      createdAt: f.createdAt.toISOString(), updatedAt: f.updatedAt.toISOString() })),
+    services: serviceRows.map(s => ({ id: s.id, artistId: s.artistId, serviceName: s.serviceName,
+      description: s.description, priceUgx: s.priceUgx, priceUsd: s.priceUsd ? Number(s.priceUsd) : null,
+      isAvailable: s.isAvailable, createdAt: s.createdAt.toISOString(), updatedAt: s.updatedAt.toISOString() })),
+  };
 }
 
 export async function getArtistByStageName(stageName: string): Promise<Artist | null> {
-  const decodedStage = decodeURIComponent(stageName).toLowerCase();
-  const artist = artistsStore.find(
-    (a) => !a.deletedAt && a.stageName.toLowerCase() === decodedStage
-  );
-  return artist || null;
+  const db = requireDb();
+  const [row] = await db.select().from(schema.artists)
+    .where(and(ilike(schema.artists.stageName, stageName), isNull(schema.artists.deletedAt))).limit(1);
+  return row ? loadArtist(row) : null;
 }
 
 export async function getArtistById(id: string): Promise<Artist | null> {
-  const artist = artistsStore.find((a) => !a.deletedAt && a.id === id);
-  return artist || null;
-}
-
-export async function checkStorageQuota(artistId: string, additionalBytes: number): Promise<boolean> {
-  const artist = await getArtistById(artistId);
-  if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
-
-  // Pro artists get 5GB; Free artists get 500MB
-  const maxBytes = artist.subscriptionTier === "PRO" ? 5 * 1024 * 1024 * 1024 : MAX_FREE_STORAGE_BYTES;
-
-  if (artist.storageUsedBytes + additionalBytes > maxBytes) {
-    throw new AppError(
-      "STORAGE_LIMIT_EXCEEDED",
-      `Upload of ${(additionalBytes / (1024 * 1024)).toFixed(1)}MB exceeds your available quota (${(
-        (maxBytes - artist.storageUsedBytes) /
-        (1024 * 1024)
-      ).toFixed(1)}MB remaining of ${artist.subscriptionTier === "PRO" ? "5GB" : "500MB"}). Please upgrade or delete old files.`,
-      400
-    );
-  }
-
-  return true;
+  const db = requireDb();
+  const [row] = await db.select().from(schema.artists)
+    .where(and(eq(schema.artists.id, id), isNull(schema.artists.deletedAt))).limit(1);
+  return row ? loadArtist(row) : null;
 }
 
 export async function updateArtistHeroVideo(artistId: string, mp4Url: string): Promise<Artist> {
-  const artist = artistsStore.find((a) => a.id === artistId);
-  if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
-
-  artist.heroVideoMp4Url = mp4Url;
-  artist.updatedAt = new Date().toISOString();
-  return artist;
+  const db = requireDb();
+  const [row] = await db.update(schema.artists).set({ heroVideoMp4Url: mp4Url, updatedAt: new Date() })
+    .where(and(eq(schema.artists.id, artistId), isNull(schema.artists.deletedAt))).returning();
+  if (!row) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
+  return loadArtist(row);
 }
 
-export async function addTrackToArtist(
-  artistId: string,
-  trackData: Omit<Track, "id" | "artistId" | "createdAt" | "updatedAt" | "playCount" | "downloadCount">
-): Promise<Track> {
-  const artist = artistsStore.find((a) => a.id === artistId);
-  if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
-
-  if (!artist.tracks) artist.tracks = [];
-
-  // Check track limits (Free tier: max 10 tracks)
-  if (artist.subscriptionTier === "FREE" && artist.tracks.length >= 10) {
-    throw new AppError(
-      "TRACK_LIMIT_EXCEEDED",
-      "Free tier artists can upload a maximum of 10 tracks. Upgrade to UG Cypher Pro for unlimited tracks.",
-      400
-    );
-  }
-
-  // Check 500MB quota
-  await checkStorageQuota(artistId, trackData.filesizeBytes);
-
-  const newTrack: Track = {
-    ...trackData,
-    id: `track-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    artistId,
-    artistStageName: artist.stageName,
-    playCount: 0,
-    downloadCount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  artist.tracks.push(newTrack);
-  artist.storageUsedBytes += trackData.filesizeBytes;
-  artist.updatedAt = new Date().toISOString();
-
-  return newTrack;
+export async function addTrackToArtist(artistId: string, data: {
+  title: string; durationSeconds: number; fileUrl: string; previewUrl: string;
+  filesizeBytes: number; priceUgx: number; priceUsd: number; isPublished: boolean;
+}): Promise<Track> {
+  data.fileUrl = validateMasterUrl(data.fileUrl);
+  data.previewUrl = validatePreviewUrl(data.previewUrl);
+  if (!data.title.trim() || data.title.length > 255 || !Number.isSafeInteger(data.durationSeconds) ||
+    data.durationSeconds <= 0 || !Number.isSafeInteger(data.filesizeBytes) || data.filesizeBytes <= 0 ||
+    !Number.isSafeInteger(data.priceUgx) || data.priceUgx < 1000)
+    throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
+  const db = requireDb();
+  return db.transaction(async tx => {
+    const [artist] = await tx.select().from(schema.artists)
+      .where(and(eq(schema.artists.id, artistId), isNull(schema.artists.deletedAt))).for("update").limit(1);
+    if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
+    const [countRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.tracks)
+      .where(and(eq(schema.tracks.artistId, artistId), isNull(schema.tracks.deletedAt)));
+    if (artist.subscriptionTier === "FREE" && countRow.count >= 10)
+      throw new AppError("TRACK_LIMIT_EXCEEDED", "Free artists can publish at most 10 tracks", 400);
+    const quota = artist.subscriptionTier === "PRO" ? PRO_STORAGE_BYTES : FREE_STORAGE_BYTES;
+    if (artist.storageUsedBytes + data.filesizeBytes > quota)
+      throw new AppError("STORAGE_LIMIT_EXCEEDED", "Storage quota exceeded", 400);
+    const [track] = await tx.insert(schema.tracks).values({
+      artistId, title: data.title, durationSeconds: data.durationSeconds,
+      fileUrl: data.fileUrl, previewUrl: data.previewUrl, filesizeBytes: data.filesizeBytes,
+      priceUgx: data.priceUgx, priceUsd: data.priceUsd.toFixed(2),
+    }).returning();
+    await tx.update(schema.artists).set({ storageUsedBytes: artist.storageUsedBytes + data.filesizeBytes,
+      updatedAt: new Date() }).where(eq(schema.artists.id, artistId));
+    return trackFromRow(track, artist.stageName);
+  });
 }
 
 export async function registerArtist(data: {
-  userId: string;
-  stageName: string;
-  realName: string;
-  dob: string;
-  bio?: string;
-  region: string;
-  subgenre: string;
-  socials: {
-    instagram?: string;
-    x?: string;
-    tiktok?: string;
-    youtube?: string;
-    facebook?: string;
-  };
-  phoneForBookings?: string;
-  bookingEmail?: string;
-  heroVideoMp4Url?: string;
-  youtubeVideos?: string[];
-  initialTracks: Array<{
-    title: string;
-    durationSeconds: number;
-    fileUrl: string;
-    previewUrl: string;
-    filesizeBytes: number;
-    priceUgx: number;
-  }>;
-  eventFlyer?: {
-    title: string;
-    eventDate: string;
-    venue: string;
-    flyerImageUrl: string;
-  };
-  freestyle?: {
-    title: string;
-    mediaUrl: string;
-    mediaType: "AUDIO" | "VIDEO";
-  };
-  services?: Array<{
-    serviceName: string;
-    description: string;
-    priceUgx: number;
-  }>;
+  userId: string; stageName: string; realName: string; dob: string; bio?: string;
+  region: string; subgenre: string; socials: { instagram?: string; x?: string; tiktok?: string; youtube?: string; facebook?: string };
+  phoneForBookings?: string; bookingEmail?: string; heroVideoMp4Url?: string; youtubeVideos?: string[];
+  initialTracks: Array<{ title: string; durationSeconds: number; fileUrl: string; previewUrl: string; filesizeBytes: number; priceUgx: number }>;
+  eventFlyer?: { title: string; eventDate: string; venue: string; flyerImageUrl: string };
+  freestyle?: { title: string; mediaUrl: string; mediaType: "AUDIO" | "VIDEO" };
+  services?: Array<{ serviceName: string; description: string; priceUgx: number }>;
 }): Promise<Artist> {
-  // Validate min 3 tracks required by specification
-  if (!data.initialTracks || data.initialTracks.length < 3) {
-    throw new AppError(
-      "MINIMUM_TRACKS_REQUIRED",
-      "Ugandan Hip-Hop artists must upload a minimum of 3 original MP3 tracks to register.",
-      400
-    );
+  if (!Array.isArray(data.initialTracks) || data.initialTracks.length < 3 || data.initialTracks.length > 10)
+    throw new AppError("TRACK_COUNT", "Provide 3 to 10 tracks", 400);
+  if (!data.stageName?.trim() || !data.realName?.trim() || !data.dob ||
+    Number.isNaN(Date.parse(data.dob)) || !data.socials)
+    throw new AppError("INVALID_ARTIST", "Invalid artist profile.", 400);
+  for (const track of data.initialTracks) {
+    track.fileUrl = validateMasterUrl(track.fileUrl);
+    track.previewUrl = validatePreviewUrl(track.previewUrl);
+    if (typeof track.title !== "string" || !track.title.trim() || track.title.length > 255 ||
+      !Number.isSafeInteger(track.durationSeconds) || track.durationSeconds <= 0 ||
+      !Number.isSafeInteger(track.filesizeBytes) || track.filesizeBytes <= 0 ||
+      !Number.isSafeInteger(track.priceUgx) || track.priceUgx < 1000)
+      throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
   }
-
-  // Validate max 10 tracks for initial registration
-  if (data.initialTracks.length > 10) {
-    throw new AppError(
-      "MAXIMUM_TRACKS_EXCEEDED",
-      "Registration allows a maximum of 10 tracks on the free tier.",
-      400
-    );
-  }
-
-  // Check stage name uniqueness
-  const existing = artistsStore.find(
-    (a) => a.stageName.toLowerCase() === data.stageName.trim().toLowerCase()
-  );
-  if (existing) {
-    throw new AppError("STAGE_NAME_TAKEN", `The stage name "${data.stageName}" is already registered.`, 409);
-  }
-
-  // Calculate total initial storage used
-  const totalTrackBytes = data.initialTracks.reduce((acc, t) => acc + (t.filesizeBytes || 8000000), 0);
-  const videoBytes = data.heroVideoMp4Url ? 25000000 : 0;
-  const initialStorage = totalTrackBytes + videoBytes;
-
-  if (initialStorage > MAX_FREE_STORAGE_BYTES) {
-    throw new AppError(
-      "STORAGE_LIMIT_EXCEEDED",
-      "Total upload size exceeds 500MB. Please optimize your media files.",
-      400
-    );
-  }
-
-  const artistId = `artist-${Date.now()}`;
-  const now = new Date().toISOString();
-
-  const formattedTracks: Track[] = data.initialTracks.map((t, index) => ({
-    id: `track-${artistId}-${index + 1}`,
-    artistId,
-    title: t.title,
-    durationSeconds: t.durationSeconds,
-    fileUrl: t.fileUrl,
-    previewUrl: t.previewUrl,
-    filesizeBytes: t.filesizeBytes,
-    priceUgx: t.priceUgx || 3000,
-    priceUsd: 0.99,
-    playCount: 0,
-    downloadCount: 0,
-    isPublished: true,
-    artistStageName: data.stageName,
-    createdAt: now,
-    updatedAt: now,
-  }));
-
-  const youtubeVideos = (data.youtubeVideos || []).slice(0, 3).map((url, i) => ({
-    id: `yt-${artistId}-${i + 1}`,
-    artistId,
-    youtubeUrl: url,
-    videoTitle: `Official Visual ${i + 1}`,
-    orderIndex: i + 1,
-    createdAt: now,
-  }));
-
-  const eventFlyers = data.eventFlyer
-    ? [
-        {
-          id: `flyer-${artistId}-1`,
-          artistId,
-          title: data.eventFlyer.title,
-          eventDate: data.eventFlyer.eventDate,
-          venue: data.eventFlyer.venue,
-          city: data.region || "Kampala",
-          flyerImageUrl: data.eventFlyer.flyerImageUrl,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]
-    : [];
-
-  const freestyles = data.freestyle
-    ? [
-        {
-          id: `free-${artistId}-1`,
-          artistId,
-          title: data.freestyle.title,
-          mediaType: data.freestyle.mediaType,
-          mediaUrl: data.freestyle.mediaUrl,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]
-    : [];
-
-  const services = (data.services || [
-    { serviceName: "Wedding / Party Performance", description: "Live hip-hop set for your event.", priceUgx: 2500000 },
-    { serviceName: "Club Gig Headline", description: "High-energy crowd performance.", priceUgx: 1500000 },
-    { serviceName: "Guest Verse Collaboration", description: "16-bar feature verse.", priceUgx: 1000000 },
-  ]).map((s, idx) => ({
-    id: `srv-${artistId}-${idx + 1}`,
-    artistId,
-    serviceName: s.serviceName,
-    description: s.description,
-    priceUgx: s.priceUgx,
-    priceUsd: Math.round(s.priceUgx / 3700),
-    isAvailable: true,
-    createdAt: now,
-    updatedAt: now,
-  }));
-
-  const newArtist: Artist = {
-    id: artistId,
-    userId: data.userId,
-    stageName: data.stageName.trim(),
-    realName: data.realName.trim(),
-    dob: data.dob,
-    bio: data.bio || `Emerging hip-hop artist representing ${data.region}.`,
-    region: data.region,
-    subgenre: data.subgenre,
-    socials: data.socials,
-    phoneForBookings: data.phoneForBookings,
-    bookingEmail: data.bookingEmail,
-    heroVideoMp4Url: data.heroVideoMp4Url,
-    heroVideoDurationSecs: 10.0,
-    storageUsedBytes: initialStorage,
-    subscriptionTier: "FREE",
-    isVerified: false,
-    createdAt: now,
-    updatedAt: now,
-    tracks: formattedTracks,
-    youtubeVideos,
-    eventFlyers,
-    freestyles,
-    services,
-  };
-
-  artistsStore.unshift(newArtist);
-
-  // Initialize artist wallet
-  walletsStore[artistId] = {
-    id: `wallet-${artistId}`,
-    artistId,
-    currentBalanceUgx: 0,
-    totalEarnedUgx: 0,
-    totalWithdrawnUgx: 0,
-    updatedAt: now,
-  };
-
-  return newArtist;
-}
-
-export async function processPurchase(params: {
-  buyerId?: string;
-  trackId: string;
-  paymentMethod: "MTN_MOMO" | "AIRTEL_MONEY" | "CARD";
-  paymentReference: string;
-}): Promise<Purchase> {
-  // Explicit ACID boundary simulation / implementation
-  // 1. Locate track and artist
-  let matchedTrack: Track | null = null;
-  let matchedArtist: Artist | null = null;
-
-  for (const artist of artistsStore) {
-    const t = artist.tracks?.find((tr) => tr.id === params.trackId);
-    if (t) {
-      matchedTrack = t;
-      matchedArtist = artist;
-      break;
-    }
-  }
-
-  if (!matchedTrack || !matchedArtist) {
-    throw new AppError("TRACK_NOT_FOUND", "The requested track was not found.", 404);
-  }
-
-  // 2. Compute 80% to artist, 20% to HipHop-UG
-  const totalUgx = matchedTrack.priceUgx;
-  const platformCommission = Math.round(totalUgx * PLATFORM_COMMISSION_PERCENT);
-  const artistEarnings = totalUgx - platformCommission;
-
-  // 3. Create purchase record with secure download token (expires in 7 days)
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const downloadToken = `token_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
-
-  const purchase: Purchase = {
-    id: `purch-${Date.now()}`,
-    buyerId: params.buyerId || "anonymous-fan",
-    trackId: matchedTrack.id,
-    artistId: matchedArtist.id,
-    amountPaidUgx: totalUgx,
-    platformCommissionUgx: platformCommission,
-    artistEarningsUgx: artistEarnings,
-    paymentMethod: params.paymentMethod,
-    paymentReference: params.paymentReference,
-    status: "COMPLETED",
-    downloadToken,
-    downloadExpiresAt: expiresAt,
-    downloadCount: 0,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
-
-  purchasesStore.push(purchase);
-
-  // 4. Update track download and play metrics
-  matchedTrack.downloadCount += 1;
-
-  // 5. Update artist wallet with ACID consistency
-  if (!walletsStore[matchedArtist.id]) {
-    walletsStore[matchedArtist.id] = {
-      id: `wallet-${matchedArtist.id}`,
-      artistId: matchedArtist.id,
-      currentBalanceUgx: 0,
-      totalEarnedUgx: 0,
-      totalWithdrawnUgx: 0,
-      updatedAt: now.toISOString(),
-    };
-  }
-
-  const wallet = walletsStore[matchedArtist.id];
-  wallet.currentBalanceUgx += artistEarnings;
-  wallet.totalEarnedUgx += artistEarnings;
-  wallet.updatedAt = now.toISOString();
-
-  // 6. Record immutable transaction log
-  walletTransactionsStore.push({
-    id: `tx-${Date.now()}`,
-    walletId: wallet.id,
-    purchaseId: purchase.id,
-    amountUgx: artistEarnings,
-    type: "CREDIT_SALE",
-    balanceAfterUgx: wallet.currentBalanceUgx,
-    description: `Sale of "${matchedTrack.title}" (80% net credited, 20% platform commission deducted)`,
-    createdAt: now.toISOString(),
+  const totalBytes = data.initialTracks.reduce((n, t) => n + t.filesizeBytes, 0);
+  if (!Number.isSafeInteger(totalBytes) || totalBytes > FREE_STORAGE_BYTES)
+    throw new AppError("STORAGE_LIMIT_EXCEEDED", "Storage quota exceeded", 400);
+  const db = requireDb();
+  const artistId = await db.transaction(async tx => {
+    const [artist] = await tx.insert(schema.artists).values({
+      userId: data.userId, stageName: data.stageName.trim(), realName: data.realName.trim(),
+      dob: data.dob, bio: data.bio || null, region: data.region, subgenre: data.subgenre,
+      socialInstagram: data.socials.instagram, socialX: data.socials.x,
+      socialTiktok: data.socials.tiktok, socialYoutube: data.socials.youtube,
+      socialFacebook: data.socials.facebook, phoneForBookings: data.phoneForBookings,
+      bookingEmail: data.bookingEmail, heroVideoMp4Url: data.heroVideoMp4Url,
+      storageUsedBytes: totalBytes,
+    }).returning({ id: schema.artists.id });
+    await tx.insert(schema.artistWallets).values({ artistId: artist.id });
+    await tx.insert(schema.tracks).values(data.initialTracks.map(t => ({
+      artistId: artist.id, title: t.title, durationSeconds: t.durationSeconds,
+      fileUrl: t.fileUrl, previewUrl: t.previewUrl, filesizeBytes: t.filesizeBytes,
+      priceUgx: t.priceUgx,
+    })));
+    if (data.youtubeVideos?.length) await tx.insert(schema.artistYoutubeVideos).values(
+      data.youtubeVideos.slice(0, 3).map((url, i) => ({ artistId: artist.id, youtubeUrl: url, orderIndex: i + 1 })));
+    if (data.eventFlyer) await tx.insert(schema.eventFlyers).values({
+      artistId: artist.id, title: data.eventFlyer.title, eventDate: new Date(data.eventFlyer.eventDate),
+      venue: data.eventFlyer.venue, flyerImageUrl: data.eventFlyer.flyerImageUrl,
+    });
+    if (data.freestyle) await tx.insert(schema.freestyles).values({
+      artistId: artist.id, title: data.freestyle.title, mediaUrl: data.freestyle.mediaUrl,
+      mediaType: data.freestyle.mediaType,
+    });
+    if (data.services?.length) await tx.insert(schema.artistServices).values(data.services.map(s => ({
+      artistId: artist.id, serviceName: s.serviceName, description: s.description, priceUgx: s.priceUgx,
+    })));
+    return artist.id;
   });
-
-  return purchase;
+  const artist = await getArtistById(artistId);
+  if (!artist) throw new Error("Artist insert failed");
+  return artist;
 }
 
-export async function createServiceBooking(params: {
-  serviceId: string;
-  artistId: string;
-  clientName: string;
-  clientEmail: string;
-  clientPhone: string;
-  eventDate: string;
-  eventLocation: string;
-  notes?: string;
-  quotedPriceUgx: number;
+export async function createServiceBooking(data: {
+  serviceId: string; artistId: string; clientName: string; clientEmail: string; clientPhone: string;
+  eventDate: string; eventLocation: string; notes?: string; quotedPriceUgx?: number;
 }): Promise<ServiceBooking> {
-  const booking: ServiceBooking = {
-    id: `book-${Date.now()}`,
-    serviceId: params.serviceId,
-    artistId: params.artistId,
-    clientName: params.clientName,
-    clientEmail: params.clientEmail,
-    clientPhone: params.clientPhone,
-    eventDate: params.eventDate,
-    eventLocation: params.eventLocation,
-    notes: params.notes,
-    quotedPriceUgx: params.quotedPriceUgx,
-    status: "PENDING",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  bookingsStore.unshift(booking);
-  return booking;
+  const db = requireDb();
+  const [service] = await db.select().from(schema.artistServices).where(and(
+    eq(schema.artistServices.id, data.serviceId), eq(schema.artistServices.artistId, data.artistId),
+    eq(schema.artistServices.isAvailable, true), isNull(schema.artistServices.deletedAt))).limit(1);
+  if (!service) throw new AppError("SERVICE_NOT_FOUND", "Service unavailable", 404);
+  const [row] = await db.insert(schema.serviceBookings).values({
+    serviceId: service.id, artistId: service.artistId, clientName: data.clientName,
+    clientEmail: data.clientEmail, clientPhone: data.clientPhone, eventDate: new Date(data.eventDate),
+    eventLocation: data.eventLocation, notes: data.notes, quotedPriceUgx: service.priceUgx,
+  }).returning();
+  return { ...row, eventDate: row.eventDate.toISOString(), createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(), deletedAt: row.deletedAt?.toISOString() };
 }
 
 export async function getBookingsForArtist(artistId: string): Promise<ServiceBooking[]> {
-  return bookingsStore.filter((b) => b.artistId === artistId);
+  const db = requireDb();
+  const rows = await db.select().from(schema.serviceBookings).where(and(
+    eq(schema.serviceBookings.artistId, artistId), isNull(schema.serviceBookings.deletedAt)))
+    .orderBy(desc(schema.serviceBookings.createdAt)).limit(100);
+  return rows.map(row => ({ ...row, eventDate: row.eventDate.toISOString(),
+    createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt?.toISOString() }));
 }
 
-
-export async function getArtistWallet(artistId: string): Promise<{
-  wallet: ArtistWallet;
-  transactions: WalletTransaction[];
-}> {
-  if (!walletsStore[artistId]) {
-    walletsStore[artistId] = {
-      id: `wallet-${artistId}`,
-      artistId,
-      currentBalanceUgx: 0,
-      totalEarnedUgx: 0,
-      totalWithdrawnUgx: 0,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  const wallet = walletsStore[artistId];
-  const txs = walletTransactionsStore.filter((t) => t.walletId === wallet.id);
-  return { wallet, transactions: txs };
+export async function getArtistWallet(artistId: string): Promise<{ wallet: ArtistWallet; transactions: WalletTransaction[] }> {
+  const db = requireDb();
+  const [row] = await db.select().from(schema.artistWallets).where(eq(schema.artistWallets.artistId, artistId)).limit(1);
+  if (!row) throw new AppError("WALLET_NOT_FOUND", "Wallet not found", 404);
+  const txs = await db.select().from(schema.walletTransactions)
+    .where(eq(schema.walletTransactions.walletId, row.id))
+    .orderBy(desc(schema.walletTransactions.createdAt)).limit(100);
+  return { wallet: { ...row, updatedAt: row.updatedAt.toISOString() },
+    transactions: txs.map(t => ({ ...t, type: t.type as "CREDIT_SALE" | "DEBIT_PAYOUT",
+      createdAt: t.createdAt.toISOString() })) };
 }
 
 export async function getTracks(params: {
-  cursor?: string | null;
-  limit?: number;
-  artistId?: string | null;
-  search?: string | null;
+  cursor?: string | null; limit?: number; artistId?: string | null; search?: string | null;
 }): Promise<PaginatedResult<Track>> {
-  const limit = Math.min(Math.max(params.limit || 10, 1), 50);
-  let allTracks: Track[] = [];
-  for (const artist of artistsStore) {
-    if (!artist.deletedAt && artist.tracks) {
-      allTracks.push(...artist.tracks);
-    }
+  const db = requireDb();
+  const limit = Math.min(Math.max(Number.isFinite(params.limit) ? params.limit! : 10, 1), 50);
+  const cursor = decodeCursor(params.cursor);
+  const filters = [isNull(schema.tracks.deletedAt), eq(schema.tracks.isPublished, true),
+    isNull(schema.artists.deletedAt)];
+  if (params.artistId) filters.push(eq(schema.tracks.artistId, params.artistId));
+  if (params.search) filters.push(ilike(schema.tracks.title, "%" + params.search + "%"));
+  if (cursor) {
+    const date = new Date(cursor.createdAt);
+    if (Number.isNaN(date.getTime())) throw new AppError("INVALID_CURSOR", "Invalid pagination cursor", 400);
+    filters.push(or(lt(schema.tracks.createdAt, date),
+      and(eq(schema.tracks.createdAt, date), lt(schema.tracks.id, cursor.id)))!);
   }
-
-  if (params.artistId) {
-    allTracks = allTracks.filter((t) => t.artistId === params.artistId);
-  }
-
-  if (params.search) {
-    const q = params.search.toLowerCase();
-    allTracks = allTracks.filter(
-      (t) =>
-        t.title.toLowerCase().includes(q) ||
-        (t.artistStageName && t.artistStageName.toLowerCase().includes(q))
-    );
-  }
-
-  allTracks.sort((a, b) => {
-    const dateComp = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    if (dateComp !== 0) return dateComp;
-    return b.id.localeCompare(a.id);
-  });
-
-  const cursorData = decodeCursor(params.cursor);
-  if (cursorData) {
-    const cursorTime = new Date(cursorData.createdAt).getTime();
-    const startIndex = allTracks.findIndex((item) => {
-      const itemTime = new Date(item.createdAt).getTime();
-      return itemTime < cursorTime || (itemTime === cursorTime && item.id < cursorData.id);
-    });
-    if (startIndex !== -1) {
-      allTracks = allTracks.slice(startIndex);
-    } else {
-      allTracks = [];
-    }
-  }
-
-  const hasMore = allTracks.length > limit;
-  const data = hasMore ? allTracks.slice(0, limit) : allTracks;
-  let nextCursor: string | null = null;
-  if (hasMore && data.length > 0) {
-    const last = data[data.length - 1];
-    nextCursor = encodeCursor({ id: last.id, createdAt: last.createdAt });
-  }
-
-  return {
-    data,
-    nextCursor,
-    hasMore,
-    limit,
-  };
+  const rows = await db.select({ track: schema.tracks, stageName: schema.artists.stageName })
+    .from(schema.tracks).innerJoin(schema.artists, eq(schema.tracks.artistId, schema.artists.id))
+    .where(and(...filters)).orderBy(desc(schema.tracks.createdAt), desc(schema.tracks.id)).limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const data = rows.slice(0, limit).map(r => trackFromRow(r.track, r.stageName));
+  const last = data[data.length - 1];
+  return { data, limit, hasMore, nextCursor: hasMore && last ? encodeCursor({ id: last.id, createdAt: last.createdAt }) : null };
 }
-

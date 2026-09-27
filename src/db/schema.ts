@@ -198,6 +198,7 @@ export const serviceBookings = pgTable("service_bookings", {
   eventDate: timestamp("event_date", { withTimezone: true }).notNull(),
   eventLocation: text("event_location").notNull(),
   notes: text("notes"),
+  quotedPriceUgx: integer("quoted_price_ugx").notNull(),
   status: bookingStatusEnum("status").default("PENDING").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -222,7 +223,7 @@ export const purchases = pgTable(
     paymentMethod: varchar("payment_method", { length: 50 }).notNull(),
     paymentReference: varchar("payment_reference", { length: 255 }).unique().notNull(),
     status: purchaseStatusEnum("status").default("PENDING").notNull(),
-    downloadToken: uuid("download_token").defaultRandom().notNull(),
+    downloadToken: uuid("download_token").defaultRandom().unique().notNull(),
     downloadExpiresAt: timestamp("download_expires_at", { withTimezone: true }).notNull(),
     downloadCount: integer("download_count").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -253,7 +254,7 @@ export const walletTransactions = pgTable("wallet_transactions", {
   walletId: uuid("wallet_id")
     .notNull()
     .references(() => artistWallets.id),
-  purchaseId: uuid("purchase_id").references(() => purchases.id),
+  purchaseId: uuid("purchase_id").unique().references(() => purchases.id),
   amountUgx: integer("amount_ugx").notNull(),
   type: varchar("type", { length: 20 }).notNull(), // 'CREDIT_SALE' | 'DEBIT_PAYOUT'
   balanceAfterUgx: bigint("balance_after_ugx", { mode: "number" }).notNull(),

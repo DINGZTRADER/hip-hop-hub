@@ -1,72 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setSessionCookie } from "@/lib/auth";
-import { handleApiError, createErrorResponse } from "@/lib/errors";
-import { MOCK_USERS, MOCK_ARTISTS } from "@/lib/mock-data";
+import { eq, and, isNull } from "drizzle-orm";
+import { requireDb, schema } from "@/db";
+import { setSessionCookie, verifyPassword } from "@/lib/auth";
+import { createErrorResponse, handleApiError } from "@/lib/errors";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, provider, googleCredential } = body;
-
-    // Handle Google Sign-In with memory
-    if (provider === "google") {
-      const googleUserEmail = body.email || "artist.google@hiphopug.com";
-      const googleUserName = body.name || "Ugandan Emcee";
-
-      // Match existing artist or create one
-      const matchedArtist = MOCK_ARTISTS.find(
-        (a) => a.bookingEmail?.toLowerCase() === googleUserEmail.toLowerCase()
-      );
-
-      const sessionPayload = {
-        userId: `google-${Date.now()}`,
-        email: googleUserEmail,
-        name: googleUserName,
-        role: (matchedArtist ? "ARTIST" : "FAN") as "ARTIST" | "FAN",
-        artistId: matchedArtist?.id,
-        stageName: matchedArtist?.stageName,
-      };
-
-      await setSessionCookie(sessionPayload);
-
-      return NextResponse.json({
-        success: true,
-        user: sessionPayload,
-      });
+    if (body.provider) {
+      return createErrorResponse("UNSUPPORTED_PROVIDER", "Google sign-in is not configured.", 400);
     }
-
-    // Standard Email & Password
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
     if (!email || !password) {
-      return createErrorResponse("INVALID_CREDENTIALS", "Email and password are required.", 400);
+      return createErrorResponse("INVALID_CREDENTIALS", "Invalid email or password.", 401);
     }
-
-    const cleanEmail = email.toLowerCase().trim();
-
-    // Check seed artists for demo login or registered users
-    const matchedUser = MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-    const matchedArtist = MOCK_ARTISTS.find(
-      (a) => a.bookingEmail?.toLowerCase() === cleanEmail || a.stageName.toLowerCase() === cleanEmail
-    );
-
-    const userId = matchedUser ? matchedUser.id : matchedArtist ? matchedArtist.userId : `user-${Date.now()}`;
-    const userName = matchedUser ? matchedUser.name : matchedArtist ? matchedArtist.stageName : "Hip-Hop Fan";
-    const userRole = (matchedArtist || matchedUser?.role === "ARTIST") ? "ARTIST" : "FAN";
-
-    const sessionPayload = {
-      userId,
-      email: cleanEmail,
-      name: userName,
-      role: userRole as "ARTIST" | "FAN",
-      artistId: matchedArtist?.id,
-      stageName: matchedArtist?.stageName,
-    };
-
-    await setSessionCookie(sessionPayload);
-
-    return NextResponse.json({
-      success: true,
-      user: sessionPayload,
-    });
+    const db = requireDb();
+    const [user] = await db.select().from(schema.users).where(and(eq(schema.users.email, email), isNull(schema.users.deletedAt))).limit(1);
+    if (!user?.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
+      return createErrorResponse("INVALID_CREDENTIALS", "Invalid email or password.", 401);
+    }
+    const [artist] = await db.select({ id: schema.artists.id, stageName: schema.artists.stageName })
+      .from(schema.artists).where(and(eq(schema.artists.userId, user.id), isNull(schema.artists.deletedAt))).limit(1);
+    const session = { userId: user.id, email: user.email, name: user.name, role: user.role, artistId: artist?.id, stageName: artist?.stageName };
+    await setSessionCookie(session);
+    return NextResponse.json({ success: true, user: session });
   } catch (error) {
     return handleApiError(error);
   }

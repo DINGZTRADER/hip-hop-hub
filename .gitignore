@@ -30,5 +30,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Drizzle cache
-/drizzle
+# Generated database migrations are versioned

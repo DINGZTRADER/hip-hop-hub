@@ -1,83 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTracks, addTrackToArtist } from "@/lib/data-service";
-import { handleApiError, createErrorResponse } from "@/lib/errors";
+import { getTracks, addTrackToArtist, getArtistById } from "@/lib/data-service";
 import { getSession } from "@/lib/auth";
+import { createErrorResponse, handleApiError } from "@/lib/errors";
 
-// GET /api/tracks - Stateless cursor-based pagination
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const cursor = searchParams.get("cursor");
-    const limit = parseInt(searchParams.get("limit") || "10", 10);
-    const artistId = searchParams.get("artistId");
-    const search = searchParams.get("search");
-
-    const result = await getTracks({
-      cursor,
-      limit,
-      artistId,
-      search,
-    });
-
-    return NextResponse.json(result, {
-      status: 200,
-      headers: {
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-      },
-    });
-  } catch (error) {
-    return handleApiError(error);
-  }
+    const p = new URL(request.url).searchParams;
+    const result = await getTracks({ cursor: p.get("cursor"), limit: Number(p.get("limit") || 10),
+      artistId: p.get("artistId"), search: p.get("search") });
+    return NextResponse.json(result, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" } });
+  } catch (error) { return handleApiError(error); }
 }
 
-// POST /api/tracks - Add track to artist crate (with 500MB storage check and 10 track cap)
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
+    if (!session) return createErrorResponse("UNAUTHORIZED", "Sign in required.", 401);
     const body = await request.json();
-
-    const {
-      artistId,
-      title,
-      durationSeconds,
-      fileUrl,
-      previewUrl,
-      filesizeBytes,
-      priceUgx,
-      priceUsd,
-    } = body;
-
-    const targetArtistId = artistId || session?.artistId;
-
-    if (!targetArtistId) {
-      return createErrorResponse(
-        "UNAUTHORIZED",
-        "Artist identifier is required to upload tracks.",
-        401
-      );
-    }
-
-    if (!title || !fileUrl || !previewUrl || !filesizeBytes) {
-      return createErrorResponse(
-        "VALIDATION_ERROR",
-        "Title, audio file URL, preview URL, and filesize are required.",
-        400
-      );
-    }
-
-    const newTrack = await addTrackToArtist(targetArtistId, {
-      title,
-      durationSeconds: Number(durationSeconds) || 180,
-      fileUrl,
-      previewUrl,
-      filesizeBytes: Number(filesizeBytes),
-      priceUgx: Number(priceUgx) || 3000,
-      priceUsd: Number(priceUsd) || 0.99,
-      isPublished: true,
-    });
-
-    return NextResponse.json({ success: true, track: newTrack }, { status: 201 });
-  } catch (error) {
-    return handleApiError(error);
-  }
+    const artistId = session.artistId;
+    if (!artistId || body.artistId !== artistId)
+      return createErrorResponse("FORBIDDEN", "Not your artist profile.", 403);
+    const artist = await getArtistById(artistId);
+    if (!artist || artist.userId !== session.userId)
+      return createErrorResponse("FORBIDDEN", "Not your artist profile.", 403);
+    if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 255 ||
+      typeof body.fileUrl !== "string" || !/^https:\/\//i.test(body.fileUrl) ||
+      typeof body.previewUrl !== "string" || !/^https:\/\//i.test(body.previewUrl) ||
+      !Number.isSafeInteger(body.filesizeBytes) || body.filesizeBytes <= 0 ||
+      !Number.isSafeInteger(body.priceUgx) || body.priceUgx < 1000 ||
+      !Number.isSafeInteger(body.durationSeconds) || body.durationSeconds <= 0)
+      return createErrorResponse("VALIDATION_ERROR", "Invalid track metadata.", 400);
+    const track = await addTrackToArtist(artistId, { title: body.title.trim(),
+      durationSeconds: body.durationSeconds, fileUrl: body.fileUrl, previewUrl: body.previewUrl,
+      filesizeBytes: body.filesizeBytes, priceUgx: body.priceUgx,
+      priceUsd: Number(body.priceUsd) || 0.99, isPublished: true });
+    return NextResponse.json({ success: true, track }, { status: 201 });
+  } catch (error) { return handleApiError(error); }
 }

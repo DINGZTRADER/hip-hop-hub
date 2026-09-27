@@ -3,9 +3,11 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { UserRole } from "@/types";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "uganda_hiphop_secret_jwt_key_2026_kampala_flow"
-);
+function jwtSecret(): Uint8Array {
+  const value = process.env.JWT_SECRET;
+  if (!value || value.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
+  return new TextEncoder().encode(value);
+}
 
 export const SESSION_COOKIE_NAME = "hiphopug_session";
 // 30 days session for "memory"
@@ -34,12 +36,12 @@ export async function signSessionToken(payload: SessionPayload): Promise<string>
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
-    .sign(JWT_SECRET);
+    .sign(jwtSecret());
 }
 
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, jwtSecret());
     return payload as unknown as SessionPayload;
   } catch {
     return null;

@@ -1,19 +1,18 @@
 {
   "name": "hip-hop-hub",
-
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/payment-validation.test.mjs",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "npx tsx scripts/seed.ts"
   },
-
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
     "bcryptjs": "^2.4.3",
@@ -38,6 +37,8 @@
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3"
-
+  },
+  "allowScripts": {
+    "esbuild": true
   }
 }

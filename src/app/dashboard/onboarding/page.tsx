@@ -47,56 +47,20 @@ export default function ArtistOnboardingPage() {
     previewUrl: string;
     filesizeBytes: number;
   }>>([
-    {
-      title: "Kampala Cypher Anthem",
-      durationSeconds: 210,
-      priceUgx: 3000,
-      fileUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-      previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-      filesizeBytes: 8500000,
-    },
-    {
-      title: "Luga Flow Heatwave",
-      durationSeconds: 195,
-      priceUgx: 3000,
-      fileUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-      previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-      filesizeBytes: 7800000,
-    },
-    {
-      title: "Streets of Uganda",
-      durationSeconds: 220,
-      priceUgx: 3500,
-      fileUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-      previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-      filesizeBytes: 8900000,
-    },
+    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
+    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
+    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
   ]);
 
   // Step 3: 3 YouTube Links & 1 MP4 Video
-  const [youtubeLinks, setYoutubeLinks] = useState<string[]>([
-    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
-    "https://www.youtube.com/watch?v=9bZkp7q19f0",
-  ]);
+  const [youtubeLinks, setYoutubeLinks] = useState<string[]>(["", "", ""]);
 
-  const [heroVideoMp4Url, setHeroVideoMp4Url] = useState<string>(
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-  );
+  const [heroVideoMp4Url, setHeroVideoMp4Url] = useState<string>("");
 
   // Step 4: Event Flyer & Freestyle
-  const [flyer, setFlyer] = useState({
-    title: "Uganda Hip Hop Festival Live",
-    eventDate: "2026-11-28T18:00:00Z",
-    venue: "Lugogo Cricket Oval",
-    flyerImageUrl: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&auto=format&fit=crop&q=80",
-  });
+  const [flyer, setFlyer] = useState({ title: "", eventDate: "", venue: "", flyerImageUrl: "" });
 
-  const [freestyle, setFreestyle] = useState({
-    title: "Raw Kampala 64-Bars Freestyle",
-    mediaUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
-    mediaType: "AUDIO" as "AUDIO" | "VIDEO",
-  });
+  const [freestyle, setFreestyle] = useState({ title: "", mediaUrl: "", mediaType: "AUDIO" as "AUDIO" | "VIDEO" });
 
   // Step 5: Function Services
   const [services, setServices] = useState([
@@ -107,7 +71,7 @@ export default function ArtistOnboardingPage() {
 
   // Calculate current storage in MB (max 500MB)
   const trackBytes = tracks.reduce((acc, t) => acc + t.filesizeBytes, 0);
-  const videoBytes = 25000000; // ~25MB for 10s video
+  const videoBytes = 0;
   const totalStorageMB = ((trackBytes + videoBytes) / (1024 * 1024)).toFixed(1);
 
   const addTrackRow = () => {
@@ -118,12 +82,12 @@ export default function ArtistOnboardingPage() {
     setTracks([
       ...tracks,
       {
-        title: `Track #${tracks.length + 1}`,
+        title: "",
         durationSeconds: 180,
         priceUgx: 3000,
-        fileUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-        previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-        filesizeBytes: 8000000,
+        fileUrl: "",
+        previewUrl: "",
+        filesizeBytes: 0,
       },
     ]);
   };
@@ -159,10 +123,10 @@ export default function ArtistOnboardingPage() {
           phoneForBookings: profile.phoneForBookings,
           bookingEmail: profile.bookingEmail,
           heroVideoMp4Url,
-          youtubeVideos: youtubeLinks,
+          youtubeVideos: youtubeLinks.filter(Boolean),
           initialTracks: tracks,
-          eventFlyer: flyer,
-          freestyle,
+          eventFlyer: flyer.title && flyer.eventDate && flyer.venue && flyer.flyerImageUrl ? flyer : undefined,
+          freestyle: freestyle.title && freestyle.mediaUrl ? freestyle : undefined,
           services,
         }),
       });
@@ -457,6 +421,18 @@ export default function ArtistOnboardingPage() {
                     />
                   </div>
 
+                  <div className="w-full space-y-2">
+                    <input type="url" required value={track.fileUrl} placeholder="Private master MP3 HTTPS URL"
+                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, fileUrl: e.target.value } : t))}
+                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
+                    <input type="url" required value={track.previewUrl} placeholder="Public preview MP3 HTTPS URL"
+                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, previewUrl: e.target.value } : t))}
+                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
+                    <input type="number" required min={1} value={track.filesizeBytes || ""}
+                      placeholder="Master MP3 size in bytes"
+                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, filesizeBytes: Number(e.target.value) } : t))}
+                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
+                  </div>
                   <div className="text-xs text-emerald-400 font-bold shrink-0">
                     Earns: UGX {(track.priceUgx * 0.8).toLocaleString()} (80%)
                   </div>
@@ -486,8 +462,8 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (tracks.length < 3) {
-                    setErrorMsg("You must provide at least 3 original MP3 tracks.");
+                  if (tracks.length < 3 || tracks.some(t => !t.title.trim() || !t.fileUrl || !t.previewUrl || t.filesizeBytes <= 0)) {
+                    setErrorMsg("Provide at least 3 tracks with master and preview URLs and file sizes.");
                     return;
                   }
                   setErrorMsg("");
