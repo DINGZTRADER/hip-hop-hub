@@ -13,6 +13,7 @@ const STORAGE_KEY = "hiphopug_cypher_tv_v1";
 
 type YouTubePlayer = {
   destroy(): void;
+  getCurrentTime(): number;
   loadVideoById(id: string, startSeconds: number): void;
   mute(): void;
   pauseVideo(): void;
@@ -95,9 +96,10 @@ export function CypherTv() {
   const playerHost = useRef<HTMLDivElement>(null);
   const player = useRef<YouTubePlayer | null>(null);
   const mutedRef = useRef(muted);
-  const remainingRef = useRef(SLOT_SECONDS);
   mutedRef.current = muted;
   const queue = [...FEATURED_IDS, ...extras];
+  const queueLengthRef = useRef(queue.length);
+  queueLengthRef.current = queue.length;
   const current = queue[index] ?? FEATURED_IDS[0];
   const currentRef = useRef(current);
   currentRef.current = current;
@@ -116,7 +118,13 @@ export function CypherTv() {
         playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, start: 0, origin: window.location.origin },
         events: {
           onReady: ({ target }) => { if (mutedRef.current) target.mute(); else target.unMute(); },
-          onStateChange: ({ data }) => setPlaying(data === 1),
+          onStateChange: ({ data }) => {
+            setPlaying(data === 1);
+            if (data === 0) {
+              setSeconds(SLOT_SECONDS);
+              setIndex((i) => (i + 1) % queueLengthRef.current);
+            }
+          },
           onError: () => { setPlaying(false); setPlaybackError("This video cannot play here. Try the next one."); },
         },
       });
@@ -154,25 +162,24 @@ export function CypherTv() {
   useEffect(() => {
     if (!running || !playing) return;
     const timer = window.setInterval(() => {
-      if (remainingRef.current > 1) {
-        remainingRef.current -= 1;
-        setSeconds(remainingRef.current);
+      const position = player.current?.getCurrentTime() ?? 0;
+      if (!Number.isFinite(position) || position < 0) return;
+      if (position < SLOT_SECONDS) {
+        setSeconds(Math.max(1, Math.ceil(SLOT_SECONDS - position)));
         return;
       }
       player.current?.pauseVideo();
-      remainingRef.current = SLOT_SECONDS;
       setSeconds(SLOT_SECONDS);
       setPlaying(false);
-      setIndex((i) => (i + 1) % queue.length);
-    }, 1000);
+      setIndex((i) => (i + 1) % queueLengthRef.current);
+    }, 250);
     return () => window.clearInterval(timer);
-  }, [running, playing, queue.length]);
+  }, [running, playing]);
 
   function select(next: number) {
     setPlaying(false);
     setPlaybackError("");
     setIndex((next + queue.length) % queue.length);
-    remainingRef.current = SLOT_SECONDS;
     setSeconds(SLOT_SECONDS);
   }
 
