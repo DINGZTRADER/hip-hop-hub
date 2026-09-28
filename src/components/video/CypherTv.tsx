@@ -9,6 +9,7 @@ const FEATURED_IDS = [
   "4MqRvrqZ0so", "QMchOEWMTuY", "kRYKFHl3kW4", "wrMBSqGmSn8",
 ];
 const SLOT_SECONDS = 30;
+const DEFAULT_VOLUME = 70;
 const STORAGE_KEY = "hiphopug_cypher_tv_v1";
 
 type YouTubePlayer = {
@@ -17,6 +18,7 @@ type YouTubePlayer = {
   loadVideoById(id: string, startSeconds: number): void;
   mute(): void;
   pauseVideo(): void;
+  setVolume(volume: number): void;
   unMute(): void;
 };
 
@@ -29,6 +31,7 @@ type YouTubeApi = {
     events: {
       onReady: (event: { target: YouTubePlayer }) => void;
       onStateChange: (event: { data: number }) => void;
+      onAutoplayBlocked: () => void;
       onError: () => void;
     };
   }) => YouTubePlayer;
@@ -90,13 +93,16 @@ export function CypherTv() {
   const [running, setRunning] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [playbackError, setPlaybackError] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const playerHost = useRef<HTMLDivElement>(null);
   const player = useRef<YouTubePlayer | null>(null);
   const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
   mutedRef.current = muted;
+  volumeRef.current = volume;
   const queue = [...FEATURED_IDS, ...extras];
   const queueLengthRef = useRef(queue.length);
   queueLengthRef.current = queue.length;
@@ -117,14 +123,19 @@ export function CypherTv() {
         videoId: currentRef.current,
         playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, start: 0, origin: window.location.origin },
         events: {
-          onReady: ({ target }) => { if (mutedRef.current) target.mute(); else target.unMute(); },
+          onReady: ({ target }) => {
+            target.setVolume(volumeRef.current);
+            if (mutedRef.current) target.mute(); else target.unMute();
+          },
           onStateChange: ({ data }) => {
             setPlaying(data === 1);
+            if (data === 1) setPlaybackError("");
             if (data === 0) {
               setSeconds(SLOT_SECONDS);
               setIndex((i) => (i + 1) % queueLengthRef.current);
             }
           },
+          onAutoplayBlocked: () => setPlaybackError("Tap the video to start playback."),
           onError: () => { setPlaying(false); setPlaybackError("This video cannot play here. Try the next one."); },
         },
       });
@@ -144,6 +155,7 @@ export function CypherTv() {
     setPlaying(false);
     setPlaybackError("");
     player.current.loadVideoById(current, 0);
+    player.current.setVolume(volumeRef.current);
     player.current.mute();
     if (!muted) player.current.unMute();
   // The mute button controls audio separately from video selection.
@@ -183,6 +195,32 @@ export function CypherTv() {
     setSeconds(SLOT_SECONDS);
   }
 
+  function startWithSound() {
+    setMuted(false);
+    setRunning(true);
+  }
+
+  function toggleSound() {
+    if (!running) { startWithSound(); return; }
+    if (muted) {
+      const nextVolume = volume || DEFAULT_VOLUME;
+      setVolume(nextVolume);
+      player.current?.setVolume(nextVolume);
+      player.current?.unMute();
+    } else {
+      player.current?.mute();
+    }
+    setMuted(!muted);
+  }
+
+  function changeVolume(nextVolume: number) {
+    setVolume(nextVolume);
+    setMuted(nextVolume === 0);
+    player.current?.setVolume(nextVolume);
+    if (nextVolume === 0) player.current?.mute();
+    else player.current?.unMute();
+  }
+
   function addVideo(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const id = youtubeId(url);
@@ -207,26 +245,31 @@ export function CypherTv() {
         <span className="text-xs font-bold uppercase tracking-widest text-ug-gold border border-ug-gold/40 rounded-full px-4 py-2">{queue.length} videos in rotation</span>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-ug-border bg-black shadow-2xl shadow-ug-gold/10">
-        <div className="relative aspect-video bg-black">
+      <div className="mx-auto w-full max-w-5xl overflow-hidden rounded-2xl border border-ug-border bg-black shadow-2xl shadow-ug-gold/10 sm:rounded-3xl">
+        <div className="relative aspect-video min-h-[200px] bg-black sm:min-h-0">
           {running ? (
             <div ref={playerHost} className="absolute inset-0 h-full w-full" />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-[#25101a] via-[#15151d] to-black text-center px-5">
-              <Disc3 className="w-20 h-20 text-ug-gold animate-spin-slow mb-5" />
-              <p className="text-2xl md:text-4xl font-black text-white">The Ugandan hip-hop rotation</p>
-              <p className="text-ug-muted mt-2 mb-7">Press play to start the show</p>
-              <button onClick={() => setRunning(true)} className="bg-ug-gold hover:bg-yellow-400 text-black font-black rounded-full px-8 py-3">Play Cypher TV</button>
+              <Disc3 className="mb-3 h-12 w-12 animate-spin-slow text-ug-gold sm:mb-5 sm:h-20 sm:w-20" />
+              <p className="text-xl font-black text-white sm:text-2xl md:text-4xl">The Ugandan hip-hop rotation</p>
+              <p className="mb-4 mt-1 text-sm text-ug-muted sm:mb-7 sm:mt-2 sm:text-base">Press play to start the show</p>
+              <button onClick={startWithSound} className="min-h-11 bg-ug-gold hover:bg-yellow-400 text-black font-black rounded-full px-8 py-3">Play with sound</button>
             </div>
           )}
         </div>
         <div className="h-1.5 bg-white/10"><div className="h-full bg-ug-gold transition-[width] duration-1000 ease-linear" style={{ width: `${((SLOT_SECONDS - seconds) / SLOT_SECONDS) * 100}%` }} /></div>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 md:p-5">
-          <div className="text-white font-bold">Video {index + 1} of {queue.length} <span className="text-ug-gold font-mono ml-2">{seconds}s</span>{running && !playing && <span className="ml-2 text-sm text-ug-muted">{playbackError || "Loading or paused"}</span>}</div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => select(index - 1)} className="rounded-full border border-ug-border px-4 py-2 text-sm font-bold text-white hover:border-ug-gold" aria-label="Previous video">Previous</button>
-            <button onClick={() => select(index + 1)} className="rounded-full border border-ug-border px-4 py-2 text-sm font-bold text-white hover:border-ug-gold" aria-label="Next video">Next <ArrowRight className="inline w-4 h-4" /></button>
-            <button onClick={() => { if (!running) { setMuted(false); setRunning(true); } else { if (muted) player.current?.unMute(); else player.current?.mute(); setMuted(!muted); } }} className="rounded-full border border-ug-border p-2.5 text-white hover:border-ug-gold" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
+        <div className="flex flex-col gap-3 p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm font-bold text-white sm:text-base">Video {index + 1} of {queue.length} <span className="ml-2 font-mono text-ug-gold">{seconds}s</span>{running && !playing && <span className="ml-2 text-xs font-normal text-ug-muted sm:text-sm">{playbackError || "Loading or paused"}</span>}</div>
+          <div className="grid w-full grid-cols-3 gap-2 md:flex md:w-auto md:items-center">
+            <button onClick={() => select(index - 1)} className="min-h-11 rounded-full border border-ug-border px-2 text-sm font-bold text-white hover:border-ug-gold md:px-4" aria-label="Previous video">Previous</button>
+            <button onClick={() => select(index + 1)} className="min-h-11 rounded-full border border-ug-border px-2 text-sm font-bold text-white hover:border-ug-gold md:px-4" aria-label="Next video">Next <ArrowRight className="inline w-4 h-4" /></button>
+            <button onClick={toggleSound} className="flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-ug-border px-2 text-xs font-bold text-white hover:border-ug-gold md:px-3" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}<span>{muted ? "Sound on" : "Mute"}</span></button>
+            <label className="col-span-3 flex min-h-11 items-center gap-2 rounded-xl border border-ug-border px-3 text-xs font-semibold text-white md:w-36">
+              <span>Volume</span>
+              <input type="range" min="0" max="100" step="5" value={muted ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} aria-label="Volume" className="h-11 min-w-0 flex-1 accent-[#facc15]" />
+              <span className="w-7 text-right font-mono text-ug-gold">{muted ? 0 : volume}%</span>
+            </label>
           </div>
         </div>
       </div>
