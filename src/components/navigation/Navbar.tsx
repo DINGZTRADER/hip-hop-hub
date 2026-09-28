@@ -2,22 +2,51 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Disc3, User, LogOut, LayoutDashboard, Menu, X, PlusCircle, Sparkles, Clapperboard } from "lucide-react";
 
+interface NavSession {
+  name: string;
+  role: "ARTIST" | "FAN";
+  stageName?: string;
+}
+
 export function Navbar() {
-  const [session, setSession] = useState<any | null>(null);
+  const pathname = usePathname();
+  const [session, setSession] = useState<NavSession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store", credentials: "same-origin" })
-      .then((res) => res.json())
-      .then((data) => {
-        setSession(data.authenticated ? data.user : null);
-      })
-      .catch(() => setSession(null))
-      .finally(() => setSessionLoading(false));
-  }, []);
+    const controller = new AbortController();
+    const checkSession = async () => {
+      setSessionLoading(true);
+      try {
+        const response = await fetch("/api/auth/me", {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Session check failed");
+        const data = await response.json();
+        if (!controller.signal.aborted) setSession(data.authenticated ? data.user : null);
+      } catch {
+        if (!controller.signal.aborted) setSession(null);
+      } finally {
+        if (!controller.signal.aborted) setSessionLoading(false);
+      }
+    };
+
+    void checkSession();
+    const checkWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkSession();
+    };
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [pathname]);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
