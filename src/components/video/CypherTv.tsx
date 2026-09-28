@@ -21,6 +21,8 @@ type YouTubePlayer = {
 
 type YouTubeApi = {
   Player: new (element: HTMLElement, options: {
+    width: string;
+    height: string;
     videoId: string;
     playerVars: Record<string, number | string>;
     events: {
@@ -108,6 +110,8 @@ export function CypherTv() {
       const mount = document.createElement("div");
       playerHost.current.appendChild(mount);
       player.current = new YT.Player(mount, {
+        width: "100%",
+        height: "100%",
         videoId: currentRef.current,
         playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, start: 0, origin: window.location.origin },
         events: {
