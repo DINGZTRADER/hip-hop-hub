@@ -11,6 +11,57 @@ const FEATURED_IDS = [
 const SLOT_SECONDS = 30;
 const STORAGE_KEY = "hiphopug_cypher_tv_v1";
 
+type YouTubePlayer = {
+  destroy(): void;
+  loadVideoById(id: string, startSeconds: number): void;
+  mute(): void;
+  pauseVideo(): void;
+  unMute(): void;
+};
+
+type YouTubeApi = {
+  Player: new (element: HTMLElement, options: {
+    videoId: string;
+    playerVars: Record<string, number | string>;
+    events: {
+      onReady: (event: { target: YouTubePlayer }) => void;
+      onStateChange: (event: { data: number }) => void;
+      onError: () => void;
+    };
+  }) => YouTubePlayer;
+};
+
+declare global {
+  interface Window {
+    YT?: YouTubeApi;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let apiPromise: Promise<YouTubeApi> | undefined;
+
+function loadYouTubeApi(): Promise<YouTubeApi> {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (apiPromise) return apiPromise;
+
+  apiPromise = new Promise<YouTubeApi>((resolve, reject) => {
+    const script = document.createElement("script");
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      previousReady?.();
+      if (window.YT?.Player) resolve(window.YT);
+      else reject(new Error("YouTube player API did not initialize"));
+    };
+    script.onerror = () => {
+      apiPromise = undefined;
+      reject(new Error("YouTube player API could not load"));
+    };
+    script.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(script);
+  });
+  return apiPromise;
+}
+
 function youtubeId(value: string): string | null {
   try {
     const url = new URL(value.trim());
@@ -34,12 +85,58 @@ export function CypherTv() {
   const [index, setIndex] = useState(0);
   const [seconds, setSeconds] = useState(SLOT_SECONDS);
   const [running, setRunning] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [playbackError, setPlaybackError] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  const player = useRef<HTMLIFrameElement>(null);
+  const playerHost = useRef<HTMLDivElement>(null);
+  const player = useRef<YouTubePlayer | null>(null);
+  const mutedRef = useRef(muted);
+  const remainingRef = useRef(SLOT_SECONDS);
+  mutedRef.current = muted;
   const queue = [...FEATURED_IDS, ...extras];
   const current = queue[index] ?? FEATURED_IDS[0];
+  const currentRef = useRef(current);
+  currentRef.current = current;
+
+  useEffect(() => {
+    if (!running || !playerHost.current) return;
+    let cancelled = false;
+    loadYouTubeApi().then((YT) => {
+      if (cancelled || !playerHost.current) return;
+      const mount = document.createElement("div");
+      playerHost.current.appendChild(mount);
+      player.current = new YT.Player(mount, {
+        videoId: currentRef.current,
+        playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, start: 0, origin: window.location.origin },
+        events: {
+          onReady: ({ target }) => { if (mutedRef.current) target.mute(); else target.unMute(); },
+          onStateChange: ({ data }) => setPlaying(data === 1),
+          onError: () => { setPlaying(false); setPlaybackError("This video cannot play here. Try the next one."); },
+        },
+      });
+    }).catch(() => { if (!cancelled) setPlaybackError("The video player could not load. Please refresh and try again."); });
+    return () => {
+      cancelled = true;
+      player.current?.destroy();
+      player.current = null;
+      playerHost.current?.replaceChildren();
+    };
+  // The YouTube player is created once when playback starts.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
+  useEffect(() => {
+    if (!player.current || !running) return;
+    setPlaying(false);
+    setPlaybackError("");
+    player.current.loadVideoById(current, 0);
+    player.current.mute();
+    if (!muted) player.current.unMute();
+  // The mute button controls audio separately from video selection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, running]);
 
   useEffect(() => {
     try {
@@ -51,24 +148,28 @@ export function CypherTv() {
   }, []);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running || !playing) return;
     const timer = window.setInterval(() => {
-      setSeconds((remaining) => {
-        if (remaining > 1) return remaining - 1;
-        setIndex((i) => (i + 1) % queue.length);
-        return SLOT_SECONDS;
-      });
+      if (remainingRef.current > 1) {
+        remainingRef.current -= 1;
+        setSeconds(remainingRef.current);
+        return;
+      }
+      player.current?.pauseVideo();
+      remainingRef.current = SLOT_SECONDS;
+      setSeconds(SLOT_SECONDS);
+      setPlaying(false);
+      setIndex((i) => (i + 1) % queue.length);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [running, queue.length]);
+  }, [running, playing, queue.length]);
 
   function select(next: number) {
+    setPlaying(false);
+    setPlaybackError("");
     setIndex((next + queue.length) % queue.length);
+    remainingRef.current = SLOT_SECONDS;
     setSeconds(SLOT_SECONDS);
-  }
-
-  function command(func: "mute" | "unMute") {
-    player.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), "https://www.youtube.com");
   }
 
   function addVideo(event: FormEvent<HTMLFormElement>) {
@@ -98,7 +199,7 @@ export function CypherTv() {
       <div className="overflow-hidden rounded-3xl border border-ug-border bg-black shadow-2xl shadow-ug-gold/10">
         <div className="relative aspect-video bg-black">
           {running ? (
-            <iframe ref={player} key={current} onLoad={() => { if (!muted) command("unMute"); }} className="absolute inset-0 h-full w-full" src={`https://www.youtube.com/embed/${current}?autoplay=1&mute=1&enablejsapi=1&playsinline=1&rel=0`} title={`Cypher TV video ${index + 1}`} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+            <div ref={playerHost} className="absolute inset-0 h-full w-full" />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-[#25101a] via-[#15151d] to-black text-center px-5">
               <Disc3 className="w-20 h-20 text-ug-gold animate-spin-slow mb-5" />
@@ -110,11 +211,11 @@ export function CypherTv() {
         </div>
         <div className="h-1.5 bg-white/10"><div className="h-full bg-ug-gold transition-[width] duration-1000 ease-linear" style={{ width: `${((SLOT_SECONDS - seconds) / SLOT_SECONDS) * 100}%` }} /></div>
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 md:p-5">
-          <div className="text-white font-bold">Video {index + 1} of {queue.length} <span className="text-ug-gold font-mono ml-2">{seconds}s</span></div>
+          <div className="text-white font-bold">Video {index + 1} of {queue.length} <span className="text-ug-gold font-mono ml-2">{seconds}s</span>{running && !playing && <span className="ml-2 text-sm text-ug-muted">{playbackError || "Loading or paused"}</span>}</div>
           <div className="flex items-center gap-2">
             <button onClick={() => select(index - 1)} className="rounded-full border border-ug-border px-4 py-2 text-sm font-bold text-white hover:border-ug-gold" aria-label="Previous video">Previous</button>
             <button onClick={() => select(index + 1)} className="rounded-full border border-ug-border px-4 py-2 text-sm font-bold text-white hover:border-ug-gold" aria-label="Next video">Next <ArrowRight className="inline w-4 h-4" /></button>
-            <button onClick={() => { if (!running) setRunning(true); else { command(muted ? "unMute" : "mute"); setMuted(!muted); } }} className="rounded-full border border-ug-border p-2.5 text-white hover:border-ug-gold" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
+            <button onClick={() => { if (!running) { setMuted(false); setRunning(true); } else { if (muted) player.current?.unMute(); else player.current?.mute(); setMuted(!muted); } }} className="rounded-full border border-ug-border p-2.5 text-white hover:border-ug-gold" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
           </div>
         </div>
       </div>
