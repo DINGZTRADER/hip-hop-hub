@@ -119,7 +119,7 @@ export function Navbar() {
                   className="bg-ug-card hover:bg-ug-border text-white font-bold text-xs uppercase px-4 py-2 rounded-full border border-ug-border transition flex items-center gap-1"
                 >
                   <PlusCircle className="w-3.5 h-3.5 text-ug-gold" />
-                  <span>Become an Artist</span>
+                  <span>Register as an Artist</span>
                 </Link>
               )}
 
@@ -147,7 +147,7 @@ export function Navbar() {
                 className="flex items-center gap-1.5 bg-ug-gold hover:bg-yellow-400 text-black font-extrabold text-xs uppercase px-4 py-2 rounded-full shadow-md transition transform hover:scale-105"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                <span>Artist Free Register</span>
+                <span>Register as an Artist</span>
               </Link>
             </div>
           )}
@@ -199,7 +199,7 @@ export function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                   className="block text-sm font-bold text-ug-gold"
                 >
-                  Register as Hip-Hop Artist (Free)
+                  Register as an Artist
                 </Link>
               )}
               <button
@@ -225,7 +225,7 @@ export function Navbar() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="text-center py-2 text-sm font-black text-black bg-ug-gold rounded-xl uppercase"
               >
-                Artist Free Registration
+                Register as an Artist
               </Link>
             </div>
           )}
