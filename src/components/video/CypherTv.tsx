@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Disc3, Plus, Volume2, VolumeX } from "lucide-react";
+import Image from "next/image";
 
 const FEATURED_IDS = [
   "Qj84C2r0ahw", "Y2A7g1X8Lks", "Wp3RJEXxS3o", "o66mG8c9yU8",
@@ -275,8 +276,10 @@ export function CypherTv() {
       </div>
 
       <div className="mt-8 overflow-hidden border-y border-ug-gold/30 py-3" aria-label="Hip Hop Hub rolling logo">
-        <div className="cypher-logo-track flex w-max gap-10 text-xl font-black tracking-widest text-ug-gold" aria-hidden="true">
-          {Array.from({ length: 12 }, (_, i) => <span key={i} className="flex items-center gap-2"><Disc3 size={23} /> HIP HOP HUB <span className="text-ug-red">●</span> UGANDA</span>)}
+        <div className="cypher-logo-track flex w-max items-center gap-10" aria-hidden="true">
+          {Array.from({ length: 12 }, (_, i) => (
+            <Image key={i} src="/brand/hip-hop-hub-logo.png" alt="" width={221} height={100} className="h-12 w-auto rounded-sm bg-white" />
+          ))}
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
-import { Disc3, Heart, Shield, Radio, Sparkles } from "lucide-react";
+import Image from "next/image";
+import { Shield } from "lucide-react";
 
 export function Footer() {
   return (
@@ -8,10 +9,9 @@ export function Footer() {
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
         {/* Col 1: Brand & Mission */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Disc3 className="w-6 h-6 text-ug-gold animate-spin-slow" />
-            <span className="text-xl font-black tracking-tight">HIP HOP HUB</span>
-          </div>
+          <Link href="/" className="inline-block rounded-md bg-white p-1" aria-label="Hip-Hop-Hub home">
+            <Image src="/brand/hip-hop-hub-logo.png" alt="Hip-Hop-Hub" width={221} height={100} className="h-20 w-auto" />
+          </Link>
 
           <p className="text-xs text-ug-muted leading-relaxed">
             The dedicated digital stage and marketplace for authentic Ugandan Hip-Hop artists.

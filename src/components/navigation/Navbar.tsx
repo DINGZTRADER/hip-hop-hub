@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Disc3, User, LogOut, LayoutDashboard, Menu, X, PlusCircle, Sparkles, Clapperboard } from "lucide-react";
+import { User, LogOut, LayoutDashboard, Menu, X, PlusCircle, Sparkles, Clapperboard } from "lucide-react";
 
 interface NavSession {
   name: string;
@@ -57,22 +58,15 @@ export function Navbar() {
   return (
     <nav className="sticky top-0 z-40 bg-[#08090C]/90 backdrop-blur-md border-b border-ug-border/80 px-4 lg:px-8 py-3.5">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
-        {/* Brand Logo with Uganda Flag Color Badges */}
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="relative w-9 h-9 rounded-xl bg-ug-surface border border-ug-border flex items-center justify-center group-hover:border-ug-gold transition shadow-md">
-            <Disc3 className="w-5 h-5 text-ug-gold group-hover:animate-spin-slow" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-ug-red" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl font-black tracking-tight text-white">HIP HOP</span>
-              <span className="text-xl font-black tracking-tight text-ug-gold">HUB</span>
-            </div>
-            <p className="text-[9px] uppercase tracking-widest text-ug-muted font-bold -mt-1">
-              UGANDA&apos;S CYPHER
-            </p>
-
-          </div>
+        <Link href="/" className="shrink-0 rounded-md bg-white p-1 transition hover:ring-2 hover:ring-ug-gold" aria-label="Hip-Hop-Hub home">
+          <Image
+            src="/brand/hip-hop-hub-logo.png"
+            alt="Hip-Hop-Hub"
+            width={221}
+            height={100}
+            className="h-11 w-auto md:h-14"
+            priority
+          />
         </Link>
 
         {/* Desktop Navigation Links */}
