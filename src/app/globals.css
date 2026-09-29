@@ -6,6 +6,29 @@
 .cypher-logo-track { animation: cypher-logo-roll 35s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .cypher-logo-track { animation: none; } }
 
+@keyframes cypher-transition-flash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  72% { opacity: 1; }
+  100% { opacity: 0.96; }
+}
+@keyframes cypher-transition-logo {
+  0% { opacity: 0; transform: scale(0.72) rotate(-7deg); }
+  38% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+  65% { transform: scale(0.98) rotate(0); }
+  100% { transform: scale(1); }
+}
+@keyframes cypher-transition-glow {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+.cypher-transition { animation: cypher-transition-flash 850ms ease-out both; }
+.cypher-transition-logo { animation: cypher-transition-logo 850ms cubic-bezier(.2,.8,.2,1) both; }
+.cypher-transition-glow { animation: cypher-transition-glow 850ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .cypher-transition, .cypher-transition-logo, .cypher-transition-glow { animation: none; }
+}
+
 :root {
   --background: #08090C;
   --foreground: #EDEDED;

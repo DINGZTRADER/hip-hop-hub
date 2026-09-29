@@ -9,13 +9,13 @@ const FEATURED_IDS = [
   "Qj84C2r0ahw", "Y2A7g1X8Lks", "Wp3RJEXxS3o", "o66mG8c9yU8",
   "4MqRvrqZ0so", "QMchOEWMTuY", "kRYKFHl3kW4", "wrMBSqGmSn8",
 ];
-const SLOT_SECONDS = 30;
+const SLOT_SECONDS = 60;
 const DEFAULT_VOLUME = 70;
 const STORAGE_KEY = "hiphopug_cypher_tv_v1";
 
 type YouTubePlayer = {
   destroy(): void;
-  getCurrentTime(): number;
+  getVideoData(): { video_id: string };
   loadVideoById(id: string, startSeconds: number): void;
   mute(): void;
   pauseVideo(): void;
@@ -93,6 +93,7 @@ export function CypherTv() {
   const [seconds, setSeconds] = useState(SLOT_SECONDS);
   const [running, setRunning] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
   const [muted, setMuted] = useState(true);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [playbackError, setPlaybackError] = useState("");
@@ -100,22 +101,53 @@ export function CypherTv() {
   const [error, setError] = useState("");
   const playerHost = useRef<HTMLDivElement>(null);
   const player = useRef<YouTubePlayer | null>(null);
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const transitioningRef = useRef(false);
+  const transitionTimer = useRef<number | null>(null);
+  const elapsed = useRef(0);
+  const lastTick = useRef<number | null>(null);
+  const expectedVideo = useRef<string | null>(null);
+  const activeVideo = useRef<string | null>(null);
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);
   mutedRef.current = muted;
   volumeRef.current = volume;
   const queue = [...FEATURED_IDS, ...extras];
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const queueLengthRef = useRef(queue.length);
   queueLengthRef.current = queue.length;
   const current = queue[index] ?? FEATURED_IDS[0];
   const currentRef = useRef(current);
   currentRef.current = current;
 
+  function advance(next: number) {
+    if (transitioningRef.current) return;
+    transitioningRef.current = true;
+    setTransitioning(true);
+    setPlaying(false);
+    setPlaybackError("");
+    lastTick.current = null;
+    elapsed.current = 0;
+    expectedVideo.current = null;
+    activeVideo.current = null;
+    player.current?.pauseVideo();
+    const nextIndex = (next + queueLengthRef.current) % queueLengthRef.current;
+    transitionTimer.current = window.setTimeout(() => {
+      expectedVideo.current = queueRef.current[nextIndex];
+      setSeconds(SLOT_SECONDS);
+      setIndex(nextIndex);
+      transitionTimer.current = null;
+    }, 850);
+  }
+
   useEffect(() => {
     if (!running || !playerHost.current) return;
     let cancelled = false;
     loadYouTubeApi().then((YT) => {
       if (cancelled || !playerHost.current) return;
+      expectedVideo.current = currentRef.current;
       const mount = document.createElement("div");
       playerHost.current.appendChild(mount);
       player.current = new YT.Player(mount, {
@@ -129,20 +161,31 @@ export function CypherTv() {
             if (mutedRef.current) target.mute(); else target.unMute();
           },
           onStateChange: ({ data }) => {
-            setPlaying(data === 1);
-            if (data === 1) setPlaybackError("");
-            if (data === 0) {
-              setSeconds(SLOT_SECONDS);
-              setIndex((i) => (i + 1) % queueLengthRef.current);
+            const isExpectedVideo = player.current?.getVideoData().video_id === expectedVideo.current;
+            if (data === 0 && !transitioningRef.current && isExpectedVideo && activeVideo.current === expectedVideo.current) {
+              advance(indexRef.current + 1);
+              return;
+            }
+            if (data === 1 && isExpectedVideo) {
+              activeVideo.current = expectedVideo.current;
+              lastTick.current = performance.now();
+              setPlaying(true);
+              setPlaybackError("");
+              transitioningRef.current = false;
+              setTransitioning(false);
+            } else if (data !== 1) {
+              lastTick.current = null;
+              setPlaying(false);
             }
           },
-          onAutoplayBlocked: () => setPlaybackError("Tap the video to start playback."),
-          onError: () => { setPlaying(false); setPlaybackError("This video cannot play here. Try the next one."); },
+          onAutoplayBlocked: () => { transitioningRef.current = false; setTransitioning(false); setPlaybackError("Tap the video to start playback."); },
+          onError: () => { transitioningRef.current = false; setTransitioning(false); setPlaying(false); setPlaybackError("This video cannot play here. Try the next one."); },
         },
       });
     }).catch(() => { if (!cancelled) setPlaybackError("The video player could not load. Please refresh and try again."); });
     return () => {
       cancelled = true;
+      if (transitionTimer.current !== null) window.clearTimeout(transitionTimer.current);
       player.current?.destroy();
       player.current = null;
       playerHost.current?.replaceChildren();
@@ -175,25 +218,27 @@ export function CypherTv() {
   useEffect(() => {
     if (!running || !playing) return;
     const timer = window.setInterval(() => {
-      const position = player.current?.getCurrentTime() ?? 0;
-      if (!Number.isFinite(position) || position < 0) return;
-      if (position < SLOT_SECONDS) {
-        setSeconds(Math.max(1, Math.ceil(SLOT_SECONDS - position)));
+      const now = performance.now();
+      const previous = lastTick.current;
+      lastTick.current = now;
+      if (previous === null || transitioningRef.current) return;
+      elapsed.current += Math.max(0, now - previous) / 1000;
+      if (elapsed.current < SLOT_SECONDS) {
+        setSeconds(Math.max(1, Math.ceil(SLOT_SECONDS - elapsed.current)));
         return;
       }
-      player.current?.pauseVideo();
-      setSeconds(SLOT_SECONDS);
-      setPlaying(false);
-      setIndex((i) => (i + 1) % queueLengthRef.current);
+      advance(indexRef.current + 1);
     }, 250);
     return () => window.clearInterval(timer);
   }, [running, playing]);
 
   function select(next: number) {
-    setPlaying(false);
-    setPlaybackError("");
-    setIndex((next + queue.length) % queue.length);
-    setSeconds(SLOT_SECONDS);
+    if (running) {
+      advance(next);
+    } else {
+      setIndex((next + queue.length) % queue.length);
+      setSeconds(SLOT_SECONDS);
+    }
   }
 
   function startWithSound() {
@@ -241,7 +286,7 @@ export function CypherTv() {
         <div>
           <p className="text-xs uppercase tracking-[0.25em] text-ug-gold font-black mb-2">Uganda hip-hop, on repeat</p>
           <h1 className="text-4xl md:text-6xl font-black text-white">CYPHER <span className="text-ug-gold">TV</span></h1>
-          <p className="text-ug-muted mt-2">Eight featured videos. Thirty seconds each. One continuous rotation.</p>
+          <p className="text-ug-muted mt-2">Eight featured videos. Up to one minute each. One continuous rotation.</p>
         </div>
         <span className="text-xs font-bold uppercase tracking-widest text-ug-gold border border-ug-gold/40 rounded-full px-4 py-2">{queue.length} videos in rotation</span>
       </div>
@@ -256,6 +301,15 @@ export function CypherTv() {
               <p className="text-xl font-black text-white sm:text-2xl md:text-4xl">The Ugandan hip-hop rotation</p>
               <p className="mb-4 mt-1 text-sm text-ug-muted sm:mb-7 sm:mt-2 sm:text-base">Press play to start the show</p>
               <button onClick={startWithSound} className="min-h-11 bg-ug-gold hover:bg-yellow-400 text-black font-black rounded-full px-8 py-3">Play with sound</button>
+            </div>
+          )}
+          {transitioning && (
+            <div className="cypher-transition absolute inset-0 z-10 flex flex-col items-center justify-center overflow-hidden bg-[#08090c]" role="status" aria-label="Loading next video">
+              <div className="cypher-transition-glow absolute h-52 w-52 rounded-full bg-ug-gold/30 blur-3xl" />
+              <div className="cypher-transition-logo relative w-44 rounded-xl bg-white p-3 shadow-[0_0_55px_rgba(255,204,0,0.55)] sm:w-64 sm:p-4">
+                <Image src="/brand/hip-hop-hub-logo.png" alt="Hip Hop Hub" width={221} height={100} className="h-auto w-full" priority />
+              </div>
+              <p className="relative mt-5 text-xs font-black uppercase tracking-[0.4em] text-ug-gold sm:text-sm">Up next</p>
             </div>
           )}
         </div>
