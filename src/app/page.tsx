@@ -2,7 +2,7 @@ import React from "react";
 import { getArtists, getRotatingHeroClips } from "@/lib/data-service";
 import { HeroVideoReel } from "@/components/hero/HeroVideoReel";
 import { ArtistCard } from "@/components/artist/ArtistCard";
-import { Search, MapPin, Music, Sparkles, Flame, ShieldCheck, Clapperboard, ArrowRight } from "lucide-react";
+import { Search, Music, Flame, Clapperboard, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 interface PageProps {
@@ -26,7 +26,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   const heroClips = await getRotatingHeroClips();
 
   // 2. Fetch paginated artists with filters
-  const { data: artists, nextCursor, hasMore } = await getArtists({
+  const { data: artists } = await getArtists({
     limit: 12,
     region: region !== "All" ? region : undefined,
     subgenre: subgenre !== "All" ? subgenre : undefined,

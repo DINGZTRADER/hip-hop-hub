@@ -1,9 +1,7 @@
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { Pool } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import * as schema from "../src/db/schema";
-import { MOCK_ARTISTS, MOCK_USERS, MOCK_WALLETS } from "../src/lib/mock-data";
-
-neonConfig.fetchConnectionCache = true;
+import { MOCK_ARTISTS, MOCK_USERS } from "../src/lib/mock-data";
 
 async function seed() {
   const connectionString = process.env.DATABASE_URL;

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Freestyle } from "@/types";
-import { Mic, Play, Radio, Flame } from "lucide-react";
+import { Mic, Flame } from "lucide-react";
 
 interface FreestyleVaultProps {
   freestyles?: Freestyle[];

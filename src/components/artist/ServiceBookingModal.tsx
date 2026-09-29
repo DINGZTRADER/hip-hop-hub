@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { ArtistService } from "@/types";
-import { Briefcase, Calendar, Phone, Mail, MapPin, CheckCircle, X, Loader2 } from "lucide-react";
+import { Briefcase, CheckCircle, X, Loader2 } from "lucide-react";
 
 interface ServiceBookingModalProps {
   services?: ArtistService[];

@@ -6,27 +6,21 @@ import {
   Wallet,
   Music,
   Video,
-  Upload,
   Calendar,
-  Sparkles,
   CheckCircle2,
-  RefreshCw,
   Phone,
-  Disc3,
   ExternalLink,
   Loader2,
   Plus,
   AlertCircle,
   Clock,
   MapPin,
-  Mail,
   DollarSign,
   ArrowDownLeft,
 } from "lucide-react";
-import { Artist, ArtistWallet, Track, ServiceBooking, WalletTransaction } from "@/types";
+import { Artist, ArtistWallet, ServiceBooking, WalletTransaction } from "@/types";
 
 export default function ArtistDashboardPage() {
-  const [session, setSession] = useState<any | null>(null);
   const [artist, setArtist] = useState<Artist | null>(null);
   const [wallet, setWallet] = useState<ArtistWallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -57,7 +51,6 @@ export default function ArtistDashboardPage() {
       .then((res) => res.json())
       .then(async (data) => {
         if (data.authenticated) {
-          setSession(data.user);
           const stageName = data.user.stageName || "Navio";
 
           // Fetch artist profile

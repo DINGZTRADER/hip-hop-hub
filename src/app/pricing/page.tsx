@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Check, Sparkles, Shield, Disc3, Zap, Headphones, Crown } from "lucide-react";
+import { Check, Headphones, Crown } from "lucide-react";
 
 export default function PricingPage() {
   return (

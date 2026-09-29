@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Volume2, VolumeX, Sparkles, ArrowRight, Play, Disc } from "lucide-react";
+import { Volume2, VolumeX, ArrowRight, Disc } from "lucide-react";
 
 interface Clip {
   artistId: string;

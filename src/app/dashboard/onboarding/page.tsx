@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 
 function readMp3Duration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -29,13 +29,11 @@ import {
   Video,
   Calendar,
   Briefcase,
-  CheckCircle2,
   AlertCircle,
   Plus,
   Trash2,
   UploadCloud,
   Loader2,
-  Sparkles,
 } from "lucide-react";
 
 export default function ArtistOnboardingPage() {
@@ -181,7 +179,7 @@ export default function ArtistOnboardingPage() {
       if (!sessionData.authenticated || !userId) throw new Error("Sign in before uploading MP3 tracks.");
       newUploadId = crypto.randomUUID();
       const pathname = `music/${userId}/${kind}/${newUploadId}.mp3`;
-      const blob = await upload(pathname, file, { access: "private", contentType: "audio/mpeg",
+      const blob = await uploadPresigned(pathname, file, { access: "private", contentType: "audio/mpeg",
         handleUploadUrl: "/api/media-uploads", clientPayload: JSON.stringify({ size: file.size }),
         onUploadProgress: event => setUploadProgress(Math.round(event.percentage)) });
       const confirmation = await fetch("/api/media-uploads/confirm", { method: "POST",

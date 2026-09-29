@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { Artist } from "@/types";
-import { Disc3, MapPin, Music, Play, CheckCircle2, Video } from "lucide-react";
+import { MapPin, Music, Play, CheckCircle2, Video } from "lucide-react";
 import { useAudio } from "../audio/AudioContext";
 
 interface ArtistCardProps {

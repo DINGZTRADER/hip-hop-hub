@@ -9,14 +9,11 @@ import { FlyerCarousel } from "@/components/artist/FlyerCarousel";
 import { ServiceBookingModal } from "@/components/artist/ServiceBookingModal";
 import {
   MapPin,
-  Calendar,
   CheckCircle2,
   Instagram,
   Twitter,
   Youtube,
-  Share2,
   Disc3,
-  Video,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -183,7 +180,7 @@ export default async function ArtistZonePage({ params }: ArtistPageProps) {
         {/* 5. Live Shows & Event Flyers */}
         {artist.eventFlyers && artist.eventFlyers.length > 0 && (
           <section>
-            <FlyerCarousel flyers={artist.eventFlyers} stageName={artist.stageName} />
+            <FlyerCarousel flyers={artist.eventFlyers} />
           </section>
         )}
 

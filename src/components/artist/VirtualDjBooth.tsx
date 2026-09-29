@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { Artist, Track } from "@/types";
+import { Artist } from "@/types";
 import { useAudio } from "../audio/AudioContext";
-import { Play, Pause, Disc3, Radio, Volume2, Sparkles, Sliders } from "lucide-react";
+import { Play, Pause } from "lucide-react";
 
 interface VirtualDjBoothProps {
   artist: Artist;

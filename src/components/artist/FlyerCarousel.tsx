@@ -1,16 +1,14 @@
 "use client";
 
 import React from "react";
-import Image from "next/image";
 import { EventFlyer } from "@/types";
-import { Calendar, MapPin, Ticket, Sparkles } from "lucide-react";
+import { Calendar, MapPin, Ticket } from "lucide-react";
 
 interface FlyerCarouselProps {
   flyers?: EventFlyer[];
-  stageName: string;
 }
 
-export function FlyerCarousel({ flyers, stageName }: FlyerCarouselProps) {
+export function FlyerCarousel({ flyers }: FlyerCarouselProps) {
   if (!flyers || flyers.length === 0) return null;
 
   return (
