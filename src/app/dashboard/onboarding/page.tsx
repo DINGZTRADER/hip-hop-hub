@@ -2,6 +2,27 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
+
+function readMp3Duration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const audio = document.createElement("audio");
+    const finish = (duration?: number) => {
+      clearTimeout(timeout);
+      audio.removeAttribute("src");
+      audio.load();
+      URL.revokeObjectURL(objectUrl);
+      if (duration && Number.isFinite(duration)) resolve(Math.ceil(duration));
+      else reject(new Error("Could not read this MP3. Check the file and try again."));
+    };
+    const timeout = window.setTimeout(() => finish(), 15000);
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => finish(audio.duration);
+    audio.onerror = () => finish();
+    audio.src = objectUrl;
+  });
+}
 import {
   Disc3,
   Music,
@@ -22,6 +43,8 @@ export default function ArtistOnboardingPage() {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [activeUpload, setActiveUpload] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Step 1: Artist Profile
   const [profile, setProfile] = useState({
@@ -40,16 +63,22 @@ export default function ArtistOnboardingPage() {
 
   // Step 2: Minimum 3, Maximum 10 MP3 Tracks
   const [tracks, setTracks] = useState<Array<{
+    id: string;
     title: string;
     durationSeconds: number;
     priceUgx: number;
     fileUrl: string;
     previewUrl: string;
     filesizeBytes: number;
+    previewBytes: number;
+    masterUploadId: string;
+    previewUploadId: string;
+    masterName: string;
+    previewName: string;
   }>>([
-    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
-    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
-    { title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0 },
+    { id: "slot-1", title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0, previewBytes: 0, masterUploadId: "", previewUploadId: "", masterName: "", previewName: "" },
+    { id: "slot-2", title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0, previewBytes: 0, masterUploadId: "", previewUploadId: "", masterName: "", previewName: "" },
+    { id: "slot-3", title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", previewUrl: "", filesizeBytes: 0, previewBytes: 0, masterUploadId: "", previewUploadId: "", masterName: "", previewName: "" },
   ]);
 
   // Step 3: 3 YouTube Links & 1 MP4 Video
@@ -70,7 +99,7 @@ export default function ArtistOnboardingPage() {
   ]);
 
   // Calculate current storage in MB (max 500MB)
-  const trackBytes = tracks.reduce((acc, t) => acc + t.filesizeBytes, 0);
+  const trackBytes = tracks.reduce((acc, t) => acc + t.filesizeBytes + t.previewBytes, 0);
   const videoBytes = 0;
   const totalStorageMB = ((trackBytes + videoBytes) / (1024 * 1024)).toFixed(1);
 
@@ -82,22 +111,91 @@ export default function ArtistOnboardingPage() {
     setTracks([
       ...tracks,
       {
+        id: crypto.randomUUID(),
         title: "",
         durationSeconds: 180,
         priceUgx: 3000,
         fileUrl: "",
         previewUrl: "",
         filesizeBytes: 0,
+        previewBytes: 0,
+        masterUploadId: "",
+        previewUploadId: "",
+        masterName: "",
+        previewName: "",
       },
     ]);
   };
 
-  const removeTrackRow = (index: number) => {
+  const releaseUpload = async (id: string) => {
+    if (!id) return;
+    const response = await fetch("/api/media-uploads/confirm", { method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }) });
+    if (!response.ok) throw new Error("Could not remove the previous MP3 upload. Please try again.");
+  };
+
+  const removeTrackRow = async (index: number) => {
     if (tracks.length <= 3) {
       alert("Minimum 3 original MP3 tracks are required for Ugandan Hip-Hop artist registration.");
       return;
     }
-    setTracks(tracks.filter((_, idx) => idx !== index));
+    const track = tracks[index];
+    try {
+      await Promise.all([releaseUpload(track.masterUploadId), releaseUpload(track.previewUploadId)]);
+      setTracks(previous => previous.filter(item => item.id !== track.id));
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Could not remove the track. Try again.");
+    }
+  };
+
+  const uploadTrackFile = async (trackId: string, kind: "master" | "preview", file: File) => {
+    if (activeUpload) return;
+    setErrorMsg("");
+    if (!/\.mp3$/i.test(file.name) || (file.type && !["audio/mpeg", "audio/mp3"].includes(file.type))) {
+      setErrorMsg("Choose an MP3 audio file.");
+      return;
+    }
+    const limit = kind === "master" ? 50 : 3;
+    if (file.size < 1024 || file.size > limit * 1024 * 1024) {
+      setErrorMsg(`${kind === "master" ? "Full track" : "Preview clip"} must be between 1 KB and ${limit} MB.`);
+      return;
+    }
+    const key = `${trackId}:${kind}`;
+    setActiveUpload(key);
+    setUploadProgress(0);
+    const current = tracks.find(item => item.id === trackId);
+    const previousId = kind === "master" ? current?.masterUploadId : current?.previewUploadId;
+    let newUploadId = "";
+    try {
+      const duration = await readMp3Duration(file);
+      if (kind === "preview" && (duration < 5 || duration > 30))
+        throw new Error("Choose a preview clip between 5 and 30 seconds long.");
+      if (previousId) await releaseUpload(previousId);
+      setTracks(previous => previous.map(item => item.id === trackId ? {
+        ...item, ...(kind === "master" ? { fileUrl: "", filesizeBytes: 0, masterUploadId: "", masterName: "" }
+          : { previewUrl: "", previewBytes: 0, previewUploadId: "", previewName: "" }),
+      } : item));
+      const sessionResponse = await fetch("/api/auth/me", { cache: "no-store" });
+      const sessionData = await sessionResponse.json();
+      const userId = sessionData.user?.userId;
+      if (!sessionData.authenticated || !userId) throw new Error("Sign in before uploading MP3 tracks.");
+      newUploadId = crypto.randomUUID();
+      const pathname = `music/${userId}/${kind}/${newUploadId}.mp3`;
+      const blob = await upload(pathname, file, { access: "private", contentType: "audio/mpeg",
+        handleUploadUrl: "/api/media-uploads", clientPayload: JSON.stringify({ size: file.size }),
+        onUploadProgress: event => setUploadProgress(Math.round(event.percentage)) });
+      const confirmation = await fetch("/api/media-uploads/confirm", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: newUploadId, url: blob.url }) });
+      const result = await confirmation.json();
+      if (!confirmation.ok) throw new Error(result.error?.message || "Could not verify the upload.");
+      setTracks(previous => previous.map(item => item.id === trackId ? {
+        ...item, ...(kind === "master" ? { fileUrl: result.url, filesizeBytes: result.size, durationSeconds: duration, masterUploadId: newUploadId, masterName: file.name }
+          : { previewUrl: result.url, previewBytes: result.size, previewUploadId: newUploadId, previewName: file.name }),
+      } : item));
+    } catch (error) {
+      if (newUploadId) await releaseUpload(newUploadId).catch(() => {});
+      setErrorMsg(error instanceof Error ? error.message : "MP3 upload failed. Try again.");
+    } finally { setActiveUpload(null); setUploadProgress(0); }
   };
 
   const handleSubmitRegistration = async () => {
@@ -371,7 +469,7 @@ export default function ArtistOnboardingPage() {
                   <span>Step 2: Original MP3 Tracks ({tracks.length}/10)</span>
                 </h2>
                 <p className="text-xs text-ug-muted mt-1">
-                  Specification: Minimum 3 tracks, maximum 10 tracks for free tier.
+                  Add 3 to 10 original tracks. Select the full MP3 and a short MP3 preview for each track.
                 </p>
               </div>
 
@@ -388,7 +486,7 @@ export default function ArtistOnboardingPage() {
             <div className="space-y-3">
               {tracks.map((track, idx) => (
                 <div
-                  key={idx}
+                  key={track.id}
                   className="p-4 rounded-2xl bg-ug-card border border-ug-border flex flex-col md:flex-row items-center gap-4"
                 >
                   <span className="w-6 text-xs font-mono font-bold text-ug-muted">#{idx + 1}</span>
@@ -421,17 +519,22 @@ export default function ArtistOnboardingPage() {
                     />
                   </div>
 
-                  <div className="w-full space-y-2">
-                    <input type="url" required value={track.fileUrl} placeholder="Private master MP3 HTTPS URL"
-                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, fileUrl: e.target.value } : t))}
-                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
-                    <input type="url" required value={track.previewUrl} placeholder="Public preview MP3 HTTPS URL"
-                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, previewUrl: e.target.value } : t))}
-                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
-                    <input type="number" required min={1} value={track.filesizeBytes || ""}
-                      placeholder="Master MP3 size in bytes"
-                      onChange={(e) => setTracks(tracks.map((t, j) => j === idx ? { ...t, filesizeBytes: Number(e.target.value) } : t))}
-                      className="w-full bg-ug-surface border border-ug-border rounded-xl px-3 py-2 text-xs text-white" />
+                  <div className="w-full space-y-3">
+                    <label className="block text-xs font-semibold text-white">
+                      Full MP3 (private, up to 50 MB)
+                      <input type="file" accept=".mp3,audio/mpeg" disabled={activeUpload !== null}
+                        onChange={event => { const file = event.target.files?.[0]; if (file) void uploadTrackFile(track.id, "master", file); event.target.value = ""; }}
+                        className="mt-1 block w-full rounded-xl border border-ug-border bg-ug-surface px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-ug-gold file:px-3 file:py-2 file:font-bold file:text-black" />
+                      {track.masterName && <span className="mt-1 block text-emerald-400">Uploaded: {track.masterName} ({(track.filesizeBytes / 1048576).toFixed(1)} MB)</span>}
+                    </label>
+                    <label className="block text-xs font-semibold text-white">
+                      Short preview MP3 (5–30 seconds, up to 3 MB)
+                      <input type="file" accept=".mp3,audio/mpeg" disabled={activeUpload !== null}
+                        onChange={event => { const file = event.target.files?.[0]; if (file) void uploadTrackFile(track.id, "preview", file); event.target.value = ""; }}
+                        className="mt-1 block w-full rounded-xl border border-ug-border bg-ug-surface px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-ug-gold file:px-3 file:py-2 file:font-bold file:text-black" />
+                      {track.previewName && <span className="mt-1 block text-emerald-400">Uploaded: {track.previewName} ({(track.previewBytes / 1048576).toFixed(1)} MB)</span>}
+                    </label>
+                    {activeUpload?.startsWith(`${track.id}:`) && <p role="status" className="text-xs text-ug-gold">Uploading {activeUpload.endsWith("master") ? "full track" : "preview"}: {uploadProgress}%</p>}
                   </div>
                   <div className="text-xs text-emerald-400 font-bold shrink-0">
                     Earns: UGX {(track.priceUgx * 0.8).toLocaleString()} (80%)
@@ -440,7 +543,8 @@ export default function ArtistOnboardingPage() {
                   {tracks.length > 3 && (
                     <button
                       type="button"
-                      onClick={() => removeTrackRow(idx)}
+                      onClick={() => void removeTrackRow(idx)}
+                      disabled={activeUpload !== null}
                       className="p-2 text-ug-red hover:bg-ug-surface rounded-lg transition"
                       title="Remove track"
                     >
@@ -462,10 +566,11 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (tracks.length < 3 || tracks.some(t => !t.title.trim() || !t.fileUrl || !t.previewUrl || t.filesizeBytes <= 0)) {
-                    setErrorMsg("Provide at least 3 tracks with master and preview URLs and file sizes.");
+                  if (activeUpload || tracks.length < 3 || tracks.some(t => !t.title.trim() || !t.fileUrl || !t.previewUrl || t.filesizeBytes <= 0 || t.previewBytes <= 0)) {
+                    setErrorMsg("Upload a full MP3 and a short preview MP3 for each of at least 3 tracks.");
                     return;
                   }
+                  if (trackBytes > 500 * 1048576) { setErrorMsg("The 500 MB storage limit is exceeded."); return; }
                   setErrorMsg("");
                   setCurrentStep(3);
                 }}

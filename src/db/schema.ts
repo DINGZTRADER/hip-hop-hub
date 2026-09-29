@@ -121,6 +121,23 @@ export const tracks = pgTable(
   ]
 );
 
+export const mediaUploads = pgTable(
+  "media_uploads",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 10 }).notNull(),
+    pathname: text("pathname").notNull().unique(),
+    blobUrl: text("blob_url").unique(),
+    reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull(),
+    actualBytes: bigint("actual_bytes", { mode: "number" }),
+    status: varchar("status", { length: 10 }).default("PENDING").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("idx_media_uploads_user_status").on(table.userId, table.status)]
+);
+
 // 4. YouTube Videos (Up to 3)
 export const artistYoutubeVideos = pgTable("artist_youtube_videos", {
   id: uuid("id").defaultRandom().primaryKey(),

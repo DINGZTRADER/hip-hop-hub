@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { requireDb, schema } from "@/db";
 import { Artist, Track, ServiceBooking, ArtistWallet, WalletTransaction } from "@/types";
 import { decodeCursor, encodeCursor, PaginatedResult } from "./pagination";
@@ -26,7 +26,8 @@ function artistFromRow(row: typeof schema.artists.$inferSelect): Artist {
 function trackFromRow(row: typeof schema.tracks.$inferSelect, stageName?: string): Track {
   return {
     id: row.id, artistId: row.artistId, title: row.title, durationSeconds: row.durationSeconds,
-    fileUrl: "", previewUrl: row.previewUrl, filesizeBytes: row.filesizeBytes,
+    fileUrl: "", previewUrl: row.previewUrl.includes(".private.blob.vercel-storage.com/")
+      ? `/api/tracks/${row.id}/preview` : row.previewUrl, filesizeBytes: row.filesizeBytes,
     priceUgx: row.priceUgx, priceUsd: Number(row.priceUsd), playCount: row.playCount,
     downloadCount: row.downloadCount, isPublished: row.isPublished,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
@@ -169,19 +170,32 @@ export async function registerArtist(data: {
     Number.isNaN(Date.parse(data.dob)) || !data.socials)
     throw new AppError("INVALID_ARTIST", "Invalid artist profile.", 400);
   for (const track of data.initialTracks) {
-    track.fileUrl = validateMasterUrl(track.fileUrl);
-    track.previewUrl = validatePreviewUrl(track.previewUrl);
     if (typeof track.title !== "string" || !track.title.trim() || track.title.length > 255 ||
       !Number.isSafeInteger(track.durationSeconds) || track.durationSeconds <= 0 ||
       !Number.isSafeInteger(track.filesizeBytes) || track.filesizeBytes <= 0 ||
-      !Number.isSafeInteger(track.priceUgx) || track.priceUgx < 1000)
-      throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
+      !Number.isSafeInteger(track.priceUgx) || track.priceUgx < 1000 ||
+      typeof track.fileUrl !== "string" || typeof track.previewUrl !== "string")
+    throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
   }
-  const totalBytes = data.initialTracks.reduce((n, t) => n + t.filesizeBytes, 0);
-  if (!Number.isSafeInteger(totalBytes) || totalBytes > FREE_STORAGE_BYTES)
-    throw new AppError("STORAGE_LIMIT_EXCEEDED", "Storage quota exceeded", 400);
   const db = requireDb();
   const artistId = await db.transaction(async tx => {
+    const urls = data.initialTracks.flatMap(t => [t.fileUrl, t.previewUrl]);
+    if (new Set(urls).size !== urls.length) throw new AppError("INVALID_TRACK", "Use distinct files for every master and preview.", 400);
+    const uploads = await tx.select().from(schema.mediaUploads).where(and(
+      eq(schema.mediaUploads.userId, data.userId), eq(schema.mediaUploads.status, "UPLOADED"),
+      inArray(schema.mediaUploads.blobUrl, urls))).for("update");
+    if (uploads.length !== urls.length) throw new AppError("INVALID_TRACK", "Upload every master and preview MP3 first.", 400);
+    const byUrl = new Map(uploads.map(upload => [upload.blobUrl, upload]));
+    for (const track of data.initialTracks) {
+      const master = byUrl.get(track.fileUrl);
+      const preview = byUrl.get(track.previewUrl);
+      if (!master || master.kind !== "master" || master.actualBytes !== track.filesizeBytes ||
+        !preview || preview.kind !== "preview" || !preview.actualBytes)
+        throw new AppError("INVALID_TRACK", "Track uploads do not match the submitted files.", 400);
+    }
+    const totalBytes = uploads.reduce((n, upload) => n + (upload.actualBytes || 0), 0);
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > FREE_STORAGE_BYTES)
+      throw new AppError("STORAGE_LIMIT_EXCEEDED", "Storage quota exceeded", 400);
     const [artist] = await tx.insert(schema.artists).values({
       userId: data.userId, stageName: data.stageName.trim(), realName: data.realName.trim(),
       dob: data.dob, bio: data.bio || null, region: data.region, subgenre: data.subgenre,
@@ -197,6 +211,10 @@ export async function registerArtist(data: {
       fileUrl: t.fileUrl, previewUrl: t.previewUrl, filesizeBytes: t.filesizeBytes,
       priceUgx: t.priceUgx,
     })));
+    await tx.update(schema.mediaUploads).set({ status: "CLAIMED" })
+      .where(inArray(schema.mediaUploads.id, uploads.map(upload => upload.id)));
+    await tx.update(schema.users).set({ role: "ARTIST", updatedAt: new Date() })
+      .where(eq(schema.users.id, data.userId));
     if (data.youtubeVideos?.length) await tx.insert(schema.artistYoutubeVideos).values(
       data.youtubeVideos.slice(0, 3).map((url, i) => ({ artistId: artist.id, youtubeUrl: url, orderIndex: i + 1 })));
     if (data.eventFlyer) await tx.insert(schema.eventFlyers).values({

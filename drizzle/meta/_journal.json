@@ -8,6 +8,13 @@
       "when": 1790470279431,
       "tag": "0000_dizzy_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790710073429,
+      "tag": "0001_fine_baron_strucker",
+      "breakpoints": true
     }
   ]
 }

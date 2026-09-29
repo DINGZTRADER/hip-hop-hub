@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || session.role !== "ARTIST" || session.artistId)
-      return createErrorResponse("FORBIDDEN", "An artist account without a profile is required.", 403);
+    if (!session || !["ARTIST", "FAN"].includes(session.role) || session.artistId)
+      return createErrorResponse("FORBIDDEN", "Sign in with an account without an artist profile.", 403);
     const body = await request.json();
     if (typeof body.stageName !== "string" || !body.stageName.trim() ||
       typeof body.realName !== "string" || !body.realName.trim() ||
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       !Array.isArray(body.initialTracks))
       return createErrorResponse("VALIDATION_ERROR", "Invalid artist profile.", 400);
     const artist = await registerArtist({ ...body, userId: session.userId });
-    await setSessionCookie({ ...session, artistId: artist.id, stageName: artist.stageName });
+    await setSessionCookie({ ...session, role: "ARTIST", artistId: artist.id, stageName: artist.stageName });
     return NextResponse.json({ success: true, artist }, { status: 201 });
   } catch (error) { return handleApiError(error); }
 }
