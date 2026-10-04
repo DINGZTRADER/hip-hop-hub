@@ -303,3 +303,9 @@ export const artistsRelations = relations(artists, ({ one, many }) => ({
     references: [artistWallets.artistId],
   }),
 }));
+
+export const cypherPlaylists = pgTable("cypher_playlists", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  videoIds: text("video_ids").array().default([]).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});

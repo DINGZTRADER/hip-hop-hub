@@ -5,10 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Disc3, Plus, Volume2, VolumeX } from "lucide-react";
 import Image from "next/image";
 
-const FEATURED_IDS = [
-  "Qj84C2r0ahw", "Y2A7g1X8Lks", "Wp3RJEXxS3o", "o66mG8c9yU8",
-  "4MqRvrqZ0so", "QMchOEWMTuY", "kRYKFHl3kW4", "wrMBSqGmSn8",
-];
+import { FEATURED_IDS, normalizeVideoIds, youtubeId } from "@/lib/cypher-playlist";
 const SLOT_SECONDS = 60;
 const DEFAULT_VOLUME = 70;
 const STORAGE_KEY = "hiphopug_cypher_tv_v1";
@@ -69,26 +66,14 @@ function loadYouTubeApi(): Promise<YouTubeApi> {
   return apiPromise;
 }
 
-function youtubeId(value: string): string | null {
-  try {
-    const url = new URL(value.trim());
-    const host = url.hostname.toLowerCase();
-    if (url.protocol !== "https:") return null;
-    let id: string | null = null;
-    if (host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com") {
-      if (url.pathname === "/watch") id = url.searchParams.get("v");
-      else if (url.pathname.startsWith("/shorts/") || url.pathname.startsWith("/embed/")) id = url.pathname.split("/")[2];
-    } else if (host === "youtu.be" || host === "www.youtu.be") {
-      id = url.pathname.slice(1);
-    }
-    return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
-  } catch {
-    return null;
-  }
-}
-
 export function CypherTv() {
   const [extras, setExtras] = useState<string[]>([]);
+  const [legacyVideos, setLegacyVideos] = useState<string[]>([]);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [canAdd, setCanAdd] = useState(false);
+  const [loadingPlaylist, setLoadingPlaylist] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const [index, setIndex] = useState(0);
   const [seconds, setSeconds] = useState(SLOT_SECONDS);
   const [running, setRunning] = useState(false);
@@ -198,6 +183,11 @@ export function CypherTv() {
     if (!player.current || !running) return;
     setPlaying(false);
     setPlaybackError("");
+    expectedVideo.current = current;
+    activeVideo.current = null;
+    elapsed.current = 0;
+    lastTick.current = null;
+    setSeconds(SLOT_SECONDS);
     player.current.loadVideoById(current, 0);
     player.current.setVolume(volumeRef.current);
     player.current.mute();
@@ -207,12 +197,41 @@ export function CypherTv() {
   }, [current, running]);
 
   useEffect(() => {
+    let controller: AbortController | null = null;
+    async function loadPlaylist() {
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      setLoadingPlaylist(true);
+      try {
+        const response = await fetch("/api/cypher-playlist", { cache: "no-store", signal: request.signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || "Could not load your saved videos.");
+        if (request.signal.aborted) return;
+        const saved = normalizeVideoIds(data.videoIds);
+        if (!saved) throw new Error("Could not load your saved videos.");
+        setAuthenticated(data.authenticated === true);
+        setCanAdd(data.canAdd === true);
+        setExtras(saved);
+        setIndex(previous => Math.min(previous, FEATURED_IDS.length + saved.length - 1));
+        setError("");
+      } catch (cause) {
+        if (!request.signal.aborted) {
+          setAuthenticated(false);
+          setCanAdd(false);
+          setExtras([]);
+          setError(cause instanceof Error ? cause.message : "Could not load your saved videos.");
+        }
+      } finally { if (!request.signal.aborted) setLoadingPlaylist(false); }
+    }
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-      if (Array.isArray(saved)) {
-        setExtras(saved.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{11}$/.test(id) && !FEATURED_IDS.includes(id)).slice(0, 100));
-      }
-    } catch { /* Ignore invalid saved playlists. */ }
+      setLegacyVideos(normalizeVideoIds(saved) ?? []);
+    } catch { /* Account saving remains available when browser storage is unavailable. */ }
+    void loadPlaylist();
+    const onVisible = () => { if (document.visibilityState === "visible") void loadPlaylist(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { controller?.abort(); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   useEffect(() => {
@@ -267,16 +286,35 @@ export function CypherTv() {
     else player.current?.unMute();
   }
 
+  async function saveVideos(videoIds: string[]) {
+    if (!canAdd || saving || loadingPlaylist) return;
+    setSaving(true);
+    setError("");
+    setSaveMessage("");
+    try {
+      const response = await fetch("/api/cypher-playlist", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ videoIds }) });
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) { setCanAdd(false); setExtras([]); if (response.status === 401) setAuthenticated(false); }
+        throw new Error(data.error?.message || "Could not save videos. Try again.");
+      }
+      const saved = normalizeVideoIds(data.videoIds);
+      if (!saved) throw new Error("Could not confirm your saved videos. Refresh and try again.");
+      setExtras(saved);
+      setLegacyVideos(previous => previous.filter(id => !saved.includes(id)));
+      setUrl("");
+      setSaveMessage("Saved to your account. Available on your other devices.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save videos. Try again."); }
+    finally { setSaving(false); }
+  }
+
   function addVideo(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const id = youtubeId(url);
     if (!id) { setError("Enter a valid YouTube watch, Shorts, or youtu.be link."); return; }
     if (queue.includes(id)) { setError("This video is already in the rotation."); return; }
-    const updated = [...extras, id];
-    setExtras(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    setUrl("");
-    setError("");
+    void saveVideos([id]);
   }
 
   return (
@@ -339,11 +377,16 @@ export function CypherTv() {
 
       <section className="mt-10 rounded-3xl border border-ug-border bg-ug-surface p-6 md:p-8">
         <h2 className="text-2xl font-black text-white">Add a Ugandan hip-hop video</h2>
-        <p className="text-sm text-ug-muted mt-1">Paste a YouTube watch or Shorts link. Your additions stay in this browser.</p>
+        <p className="text-sm text-ug-muted mt-1">Paste a YouTube watch or Shorts link. Your saved videos follow your account across devices.</p>
+        {loadingPlaylist && <p role="status" className="mt-4 text-ug-muted">Loading your saved videos...</p>}
+        {!loadingPlaylist && !authenticated && <p className="mt-4 text-ug-gold"><Link href="/auth/login?next=cypher">Sign in as an artist to save videos</Link></p>}
+        {canAdd && legacyVideos.some(id => !extras.includes(id)) && <button type="button" disabled={saving || loadingPlaylist} onClick={() => void saveVideos(legacyVideos)} className="mt-4 rounded-xl border border-ug-gold px-4 py-3 text-ug-gold disabled:opacity-50">Import videos saved in this browser</button>}
+        {!loadingPlaylist && authenticated && !canAdd && <p className="mt-4 text-ug-muted">Only signed-in artists can add videos. <Link href="/dashboard/onboarding" className="text-ug-gold">Register as an Artist</Link></p>}
         <form onSubmit={addVideo} className="mt-5 flex flex-col sm:flex-row gap-3">
           <input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-label="YouTube video URL" className="min-w-0 flex-1 rounded-xl border border-ug-border bg-ug-card px-4 py-3 text-white focus:border-ug-gold focus:outline-none" />
-          <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-ug-gold px-6 py-3 font-black text-black hover:bg-yellow-400"><Plus size={18} /> Add to rotation</button>
+          <button type="submit" disabled={!canAdd || loadingPlaylist || saving} className="inline-flex items-center justify-center gap-2 rounded-xl bg-ug-gold px-6 py-3 font-black text-black hover:bg-yellow-400"><Plus size={18} /> {saving ? "Saving..." : "Save to rotation"}</button>
         </form>
+        {saveMessage && <p role="status" className="mt-3 text-sm text-emerald-400">{saveMessage}</p>}
         {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
         <p className="mt-4 text-xs text-ug-muted">Playback quality comes from the YouTube upload and your connection. Some videos may restrict embedding.</p>
       </section>

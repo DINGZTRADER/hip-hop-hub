@@ -15,6 +15,13 @@
       "when": 1790710073429,
       "tag": "0001_fine_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791128873010,
+      "tag": "0002_reflective_kang",
+      "breakpoints": true
     }
   ]
 }

@@ -18,8 +18,8 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error?.message || "Sign in failed.");
-      const returnToOnboarding = new URLSearchParams(window.location.search).get("next") === "onboarding";
-      router.push(returnToOnboarding ? "/dashboard/onboarding" : data.user?.role === "ARTIST" ? "/dashboard" : "/");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next === "onboarding" ? "/dashboard/onboarding" : next === "cypher" ? "/cypher-tv" : data.user?.role === "ARTIST" ? "/dashboard" : "/");
       router.refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Sign in failed."); }
     finally { setBusy(false); }
