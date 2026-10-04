@@ -50,7 +50,7 @@ export function HeroVideoReel({ initialClips }: HeroVideoReelProps) {
   if (!currentClip) {
     return (
       <div className="w-full h-80 rounded-2xl bg-ug-card flex items-center justify-center border border-ug-border">
-        <p className="text-ug-muted">Loading 10-Second Ugandan Cypher Reel...</p>
+        <div className="text-center px-6"><p className="text-ug-muted">No artist highlights yet.</p><Link href="/dashboard/onboarding" className="mt-4 inline-block rounded-full bg-ug-gold px-6 py-3 font-bold text-black">Register as an Artist</Link></div>
       </div>
     );
   }

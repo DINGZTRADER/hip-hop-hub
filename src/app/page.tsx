@@ -43,7 +43,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           <div>
             <p className="flex items-center gap-2 text-xs uppercase tracking-widest font-black text-ug-gold"><Clapperboard size={17} /> New: Cypher TV</p>
             <h2 className="mt-2 text-2xl md:text-4xl font-black text-white">Ugandan hip-hop, on repeat.</h2>
-            <p className="mt-1 text-sm text-ug-muted">Watch eight music videos in a continuous 30-second rotation.</p>
+            <p className="mt-1 text-sm text-ug-muted">Watch eight music videos in a continuous rotation of up to one minute per video.</p>
           </div>
           <span className="inline-flex items-center gap-2 self-start sm:self-center rounded-full bg-ug-gold px-6 py-3 text-sm font-black text-black">Watch now <ArrowRight size={17} /></span>
         </Link>
