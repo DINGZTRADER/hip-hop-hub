@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { Mp3Upload } from "@/components/audio/Mp3Upload";
+import { MAX_ARTIST_TRACKS } from "@/lib/artist-track-policy";
 import {
   Wallet,
   Music,
@@ -32,6 +34,8 @@ export default function ArtistDashboardPage() {
   const [isUpdatingVideo, setIsUpdatingVideo] = useState<boolean>(false);
   const [videoSuccess, setVideoSuccess] = useState<boolean>(false);
 
+  const [isUploadingMp3, setIsUploadingMp3] = useState(false);
+
   // Add new track modal state
   const [showAddTrackModal, setShowAddTrackModal] = useState<boolean>(false);
   const [isAddingTrack, setIsAddingTrack] = useState<boolean>(false);
@@ -42,7 +46,8 @@ export default function ArtistDashboardPage() {
     durationSeconds: 210,
     priceUgx: 3000,
     fileUrl: "",
-    previewUrl: "",
+    masterUploadId: "",
+    masterName: "",
     filesizeBytes: 0,
   });
 
@@ -108,7 +113,13 @@ export default function ArtistDashboardPage() {
 
   const handleCreateTrack = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!artist) return;
+    if (!artist || isUploadingMp3) return;
+    if ((artist.tracks?.length ?? 0) >= MAX_ARTIST_TRACKS) {
+      setAddTrackError("One original MP3 is allowed for now."); return;
+    }
+    if (!newTrackForm.fileUrl || !newTrackForm.masterUploadId) {
+      setAddTrackError("Upload your full MP3 first."); return;
+    }
 
     setIsAddingTrack(true);
     setAddTrackError("");
@@ -256,9 +267,9 @@ export default function ArtistDashboardPage() {
             <div className="grid grid-cols-2 gap-4 mt-3">
               <div>
                 <p className="text-2xl font-black text-white">
-                  {currentArtist?.tracks?.length || 3}
+                  {currentArtist?.tracks?.length || 0}
                 </p>
-                <p className="text-[11px] text-ug-muted">MP3 Tracks (Max 10)</p>
+                <p className="text-[11px] text-ug-muted">MP3 Track (Limit 1)</p>
               </div>
               <div>
                 <p className="text-2xl font-black text-ug-red">
@@ -330,16 +341,17 @@ export default function ArtistDashboardPage() {
               <Music className="w-5 h-5 text-ug-gold" />
               <h2 className="text-xl font-black text-white">Your MP3 Master Tracks</h2>
             </div>
-            <p className="text-xs text-ug-muted mt-1">Min 3 • Max 10 (Free Tier)</p>
+            <p className="text-xs text-ug-muted mt-1">One original MP3 for now. No short preview required.</p>
           </div>
 
           <button
             type="button"
             onClick={() => setShowAddTrackModal(true)}
-            className="flex items-center gap-1.5 bg-ug-card hover:bg-ug-border text-ug-gold border border-ug-border text-xs font-bold px-4 py-2.5 rounded-full transition shadow"
+            disabled={!currentArtist || (currentArtist.tracks?.length ?? 0) >= MAX_ARTIST_TRACKS}
+            className="flex items-center gap-1.5 bg-ug-card hover:bg-ug-border text-ug-gold border border-ug-border text-xs font-bold px-4 py-2.5 rounded-full transition shadow disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4" />
-            <span>Upload New MP3 Track</span>
+            <span>Upload MP3 Track</span>
           </button>
         </div>
 
@@ -471,11 +483,12 @@ export default function ArtistDashboardPage() {
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-ug-border">
               <div className="flex items-center gap-2">
                 <Music className="w-5 h-5 text-ug-gold" />
-                <h3 className="text-lg font-black text-white">Upload New MP3 Track</h3>
+                <h3 className="text-lg font-black text-white">Upload MP3 Track</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddTrackModal(false)}
+                disabled={isUploadingMp3 || isAddingTrack}
                 className="text-ug-muted hover:text-white text-sm font-bold"
               >
                 ✕
@@ -548,45 +561,22 @@ export default function ArtistDashboardPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-ug-muted mb-1">
-                  Master MP3 URL (320kbps) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTrackForm.fileUrl}
-                  onChange={(e) => setNewTrackForm({ ...newTrackForm, fileUrl: e.target.value })}
-                  placeholder="Direct audio URL"
-                  className="w-full bg-ug-card border border-ug-border rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-ug-gold font-mono text-[11px]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-ug-muted mb-1">
-                  Preview Stream URL (128kbps) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTrackForm.previewUrl}
-                  onChange={(e) => setNewTrackForm({ ...newTrackForm, previewUrl: e.target.value })}
-                  placeholder="Direct audio stream URL"
-                  className="w-full bg-ug-card border border-ug-border rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-ug-gold font-mono text-[11px]"
-                />
-              </div>
+              <Mp3Upload value={newTrackForm} onBusyChange={setIsUploadingMp3} onError={setAddTrackError}
+                onUploaded={uploaded => setNewTrackForm(previous => ({...previous, ...uploaded}))} />
+              <p className="text-xs text-ug-muted">Upload one original full MP3. No short preview is required.</p>
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddTrackModal(false)}
+                disabled={isUploadingMp3 || isAddingTrack}
                   className="px-4 py-2.5 rounded-xl border border-ug-border text-ug-muted text-xs font-semibold hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isAddingTrack}
+                  disabled={isAddingTrack || isUploadingMp3 || !newTrackForm.fileUrl}
                   className="bg-ug-gold hover:bg-yellow-400 text-black font-extrabold text-xs uppercase px-6 py-2.5 rounded-xl transition shadow disabled:opacity-50 flex items-center gap-2"
                 >
                   {isAddingTrack ? (

@@ -2,27 +2,9 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadPresigned } from "@vercel/blob/client";
+import { Mp3Upload } from "@/components/audio/Mp3Upload";
+import { MAX_ARTIST_TRACKS } from "@/lib/artist-track-policy";
 
-function readMp3Duration(file: File): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const audio = document.createElement("audio");
-    const finish = (duration?: number) => {
-      clearTimeout(timeout);
-      audio.removeAttribute("src");
-      audio.load();
-      URL.revokeObjectURL(objectUrl);
-      if (duration && Number.isFinite(duration)) resolve(Math.ceil(duration));
-      else reject(new Error("Could not read this MP3. Check the file and try again."));
-    };
-    const timeout = window.setTimeout(() => finish(), 15000);
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => finish(audio.duration);
-    audio.onerror = () => finish();
-    audio.src = objectUrl;
-  });
-}
 import {
   Disc3,
   Music,
@@ -39,8 +21,7 @@ export default function ArtistOnboardingPage() {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [activeUpload, setActiveUpload] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [activeUpload, setActiveUpload] = useState(false);
 
   // Step 1: Artist Profile
   const [profile, setProfile] = useState({
@@ -93,60 +74,12 @@ export default function ArtistOnboardingPage() {
   const videoBytes = 0;
   const totalStorageMB = ((trackBytes + videoBytes) / (1024 * 1024)).toFixed(1);
 
-  const releaseUpload = async (id: string) => {
-    if (!id) return;
-    const response = await fetch("/api/media-uploads/confirm", { method: "DELETE", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }) });
-    if (!response.ok) throw new Error("Could not remove the previous MP3 upload. Please try again.");
-  };
-
-  const uploadTrackFile = async (trackId: string, file: File) => {
-    if (activeUpload) return;
-    setErrorMsg("");
-    if (!/\.mp3$/i.test(file.name) || (file.type && !["audio/mpeg", "audio/mp3"].includes(file.type))) {
-      setErrorMsg("Choose an MP3 audio file.");
-      return;
-    }
-    const limit = 50;
-    if (file.size < 1024 || file.size > limit * 1024 * 1024) {
-      setErrorMsg(`Full track must be between 1 KB and ${limit} MB.`);
-      return;
-    }
-    const key = `${trackId}:master`;
-    setActiveUpload(key);
-    setUploadProgress(0);
-    const current = tracks.find(item => item.id === trackId);
-    const previousId = current?.masterUploadId;
-    let newUploadId = "";
-    try {
-      const duration = await readMp3Duration(file);
-      if (previousId) await releaseUpload(previousId);
-      setTracks(previous => previous.map(item => item.id === trackId ? {
-        ...item, fileUrl: "", filesizeBytes: 0, masterUploadId: "", masterName: "",
-      } : item));
-      const sessionResponse = await fetch("/api/auth/me", { cache: "no-store" });
-      const sessionData = await sessionResponse.json();
-      const userId = sessionData.user?.userId;
-      if (!sessionData.authenticated || !userId) throw new Error("Sign in before uploading MP3 tracks.");
-      newUploadId = crypto.randomUUID();
-      const pathname = `music/${userId}/master/${newUploadId}.mp3`;
-      const blob = await uploadPresigned(pathname, file, { access: "private", contentType: "audio/mpeg",
-        handleUploadUrl: "/api/media-uploads", clientPayload: JSON.stringify({ size: file.size }),
-        onUploadProgress: event => setUploadProgress(Math.round(event.percentage)) });
-      const confirmation = await fetch("/api/media-uploads/confirm", { method: "POST",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: newUploadId, url: blob.url }) });
-      const result = await confirmation.json();
-      if (!confirmation.ok) throw new Error(result.error?.message || "Could not verify the upload.");
-      setTracks(previous => previous.map(item => item.id === trackId ? {
-        ...item, fileUrl: result.url, filesizeBytes: result.size, durationSeconds: duration, masterUploadId: newUploadId, masterName: file.name,
-      } : item));
-    } catch (error) {
-      if (newUploadId) await releaseUpload(newUploadId).catch(() => {});
-      setErrorMsg(error instanceof Error ? error.message : "MP3 upload failed. Try again.");
-    } finally { setActiveUpload(null); setUploadProgress(0); }
-  };
-
   const handleSubmitRegistration = async () => {
+    if (activeUpload || tracks.length !== MAX_ARTIST_TRACKS || tracks.some(track => !track.title.trim() || !track.fileUrl || track.filesizeBytes <= 0)) {
+      setErrorMsg("Upload one full MP3 and enter its title before registering.");
+      setCurrentStep(2);
+      return;
+    }
     setIsSubmitting(true);
     setErrorMsg("");
 
@@ -170,7 +103,7 @@ export default function ArtistOnboardingPage() {
           bookingEmail: profile.bookingEmail,
           heroVideoMp4Url,
           youtubeVideos: youtubeLinks.filter(Boolean),
-          initialTracks: tracks.map(track => ({ ...track, previewUrl: "" })),
+          initialTracks: tracks,
           eventFlyer: flyer.title && flyer.eventDate && flyer.venue && flyer.flyerImageUrl ? flyer : undefined,
           freestyle: freestyle.title && freestyle.mediaUrl ? freestyle : undefined,
           services,
@@ -223,6 +156,7 @@ export default function ArtistOnboardingPage() {
           <button
             key={s.num}
             onClick={() => setCurrentStep(s.num)}
+              disabled={activeUpload}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition shrink-0 ${
               currentStep === s.num
                 ? "bg-ug-gold text-black shadow-md"
@@ -460,15 +394,8 @@ export default function ArtistOnboardingPage() {
                   </div>
 
                   <div className="w-full space-y-3">
-                    <label className="block text-xs font-semibold text-white">
-                      Full MP3 (private, up to 50 MB)
-                      <input type="file" accept=".mp3,audio/mpeg" disabled={activeUpload !== null}
-                        onChange={event => { const file = event.target.files?.[0]; if (file) void uploadTrackFile(track.id, file); event.target.value = ""; }}
-                        className="mt-1 block w-full rounded-xl border border-ug-border bg-ug-surface px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-ug-gold file:px-3 file:py-2 file:font-bold file:text-black" />
-                      {track.masterName && <span className="mt-1 block text-emerald-400">Uploaded: {track.masterName} ({(track.filesizeBytes / 1048576).toFixed(1)} MB)</span>}
-                    </label>
-
-                    {activeUpload?.startsWith(`${track.id}:`) && <p role="status" className="text-xs text-ug-gold">Uploading full track: {uploadProgress}%</p>}
+                    <Mp3Upload value={track} onBusyChange={setActiveUpload} onError={setErrorMsg}
+                      onUploaded={uploaded => setTracks(previous => previous.map(item => item.id === track.id ? {...item, ...uploaded} : item))} />
                   </div>
                   <div className="text-xs text-emerald-400 font-bold shrink-0">
                     Earns: UGX {(track.priceUgx * 0.8).toLocaleString()} (80%)
@@ -482,6 +409,7 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={() => setCurrentStep(1)}
+                disabled={activeUpload}
                 className="text-xs text-ug-muted hover:text-white px-4 py-2"
               >
                 ← Back
@@ -489,7 +417,7 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (activeUpload || tracks.length !== 1 || tracks.some(t => !t.title.trim() || !t.fileUrl || t.filesizeBytes <= 0)) {
+                  if (activeUpload || tracks.length !== MAX_ARTIST_TRACKS || tracks.some(t => !t.title.trim() || !t.fileUrl || t.filesizeBytes <= 0)) {
                     setErrorMsg("Upload one full MP3 and enter its title.");
                     return;
                   }
@@ -722,7 +650,7 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={handleSubmitRegistration}
-                disabled={isSubmitting}
+                disabled={isSubmitting || activeUpload}
                 className="flex items-center gap-2 bg-ug-gold hover:bg-yellow-400 text-black font-extrabold text-sm uppercase px-8 py-3.5 rounded-full transition shadow-xl transform hover:scale-105 disabled:opacity-50"
               >
                 {isSubmitting ? (

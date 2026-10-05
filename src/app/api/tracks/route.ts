@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return createErrorResponse("FORBIDDEN", "Not your artist profile.", 403);
     if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 255 ||
       typeof body.fileUrl !== "string" || !/^https:\/\//i.test(body.fileUrl) ||
-      typeof body.previewUrl !== "string" || !/^https:\/\//i.test(body.previewUrl) ||
+      (body.previewUrl !== undefined && body.previewUrl !== "") ||
       !Number.isSafeInteger(body.filesizeBytes) || body.filesizeBytes <= 0 ||
       !Number.isSafeInteger(body.priceUgx) || body.priceUgx < 1000 ||
       !Number.isSafeInteger(body.durationSeconds) || body.durationSeconds <= 0)

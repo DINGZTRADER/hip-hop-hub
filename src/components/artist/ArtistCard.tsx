@@ -87,7 +87,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
         </div>
 
         {/* Quick Preview Button */}
-        {firstTrack && (
+        {firstTrack?.previewUrl && (
           <button
             onClick={handleQuickPlay}
             className="flex items-center gap-1 bg-ug-card hover:bg-ug-gold hover:text-black text-white px-3 py-1.5 rounded-full border border-ug-border transition font-semibold"

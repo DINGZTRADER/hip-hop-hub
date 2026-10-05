@@ -93,7 +93,7 @@ export const artists = pgTable(
   ]
 );
 
-// 3. MP3 Tracks (Min 3, Max 10 Free Tier)
+// 3. MP3 tracks (one new track per artist; existing catalog retained)
 export const tracks = pgTable(
   "tracks",
   {

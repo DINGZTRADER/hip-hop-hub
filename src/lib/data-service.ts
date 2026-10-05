@@ -3,7 +3,7 @@ import { requireDb, schema } from "@/db";
 import { Artist, Track, ServiceBooking, ArtistWallet, WalletTransaction } from "@/types";
 import { decodeCursor, encodeCursor, PaginatedResult } from "./pagination";
 import { AppError } from "./errors";
-import { validateMasterUrl, validatePreviewUrl } from "./media";
+import { MAX_ARTIST_TRACKS } from "./artist-track-policy";
 
 const FREE_STORAGE_BYTES = 500 * 1024 * 1024;
 const PRO_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
@@ -123,11 +123,11 @@ export async function updateArtistHeroVideo(artistId: string, mp4Url: string): P
 }
 
 export async function addTrackToArtist(artistId: string, data: {
-  title: string; durationSeconds: number; fileUrl: string; previewUrl: string;
+  title: string; durationSeconds: number; fileUrl: string; previewUrl?: string;
   filesizeBytes: number; priceUgx: number; priceUsd: number; isPublished: boolean;
 }): Promise<Track> {
-  data.fileUrl = validateMasterUrl(data.fileUrl);
-  data.previewUrl = validatePreviewUrl(data.previewUrl);
+  if (!data.fileUrl || (data.previewUrl !== undefined && data.previewUrl !== ""))
+    throw new AppError("INVALID_TRACK", "Upload one full MP3 without a preview.", 400);
   if (!data.title.trim() || data.title.length > 255 || !Number.isSafeInteger(data.durationSeconds) ||
     data.durationSeconds <= 0 || !Number.isSafeInteger(data.filesizeBytes) || data.filesizeBytes <= 0 ||
     !Number.isSafeInteger(data.priceUgx) || data.priceUgx < 1000)
@@ -139,16 +139,22 @@ export async function addTrackToArtist(artistId: string, data: {
     if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
     const [countRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.tracks)
       .where(and(eq(schema.tracks.artistId, artistId), isNull(schema.tracks.deletedAt)));
-    if (artist.subscriptionTier === "FREE" && countRow.count >= 10)
-      throw new AppError("TRACK_LIMIT_EXCEEDED", "Free artists can publish at most 10 tracks", 400);
+    if (countRow.count >= MAX_ARTIST_TRACKS)
+      throw new AppError("TRACK_LIMIT_EXCEEDED", "One original MP3 is allowed for now", 400);
+    const [upload] = await tx.select().from(schema.mediaUploads).where(and(
+      eq(schema.mediaUploads.userId, artist.userId), eq(schema.mediaUploads.status, "UPLOADED"),
+      eq(schema.mediaUploads.blobUrl, data.fileUrl))).for("update").limit(1);
+    if (!upload || upload.kind !== "master" || upload.actualBytes !== data.filesizeBytes)
+      throw new AppError("INVALID_TRACK", "Upload and verify your own full MP3 first.", 400);
     const quota = artist.subscriptionTier === "PRO" ? PRO_STORAGE_BYTES : FREE_STORAGE_BYTES;
     if (artist.storageUsedBytes + data.filesizeBytes > quota)
       throw new AppError("STORAGE_LIMIT_EXCEEDED", "Storage quota exceeded", 400);
     const [track] = await tx.insert(schema.tracks).values({
       artistId, title: data.title, durationSeconds: data.durationSeconds,
-      fileUrl: data.fileUrl, previewUrl: data.previewUrl, filesizeBytes: data.filesizeBytes,
+      fileUrl: data.fileUrl, previewUrl: "", filesizeBytes: data.filesizeBytes,
       priceUgx: data.priceUgx, priceUsd: data.priceUsd.toFixed(2),
     }).returning();
+    await tx.update(schema.mediaUploads).set({status: "CLAIMED"}).where(eq(schema.mediaUploads.id, upload.id));
     await tx.update(schema.artists).set({ storageUsedBytes: artist.storageUsedBytes + data.filesizeBytes,
       updatedAt: new Date() }).where(eq(schema.artists.id, artistId));
     return trackFromRow(track, artist.stageName);
@@ -164,7 +170,7 @@ export async function registerArtist(data: {
   freestyle?: { title: string; mediaUrl: string; mediaType: "AUDIO" | "VIDEO" };
   services?: Array<{ serviceName: string; description: string; priceUgx: number }>;
 }): Promise<Artist> {
-  if (!Array.isArray(data.initialTracks) || data.initialTracks.length !== 1)
+  if (!Array.isArray(data.initialTracks) || data.initialTracks.length !== MAX_ARTIST_TRACKS)
     throw new AppError("TRACK_COUNT", "Provide exactly one MP3 track", 400);
   if (!data.stageName?.trim() || !data.realName?.trim() || !data.dob ||
     Number.isNaN(Date.parse(data.dob)) || !data.socials)

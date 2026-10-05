@@ -10,7 +10,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const [track] = await db.select({ previewUrl: schema.tracks.previewUrl }).from(schema.tracks)
       .where(and(eq(schema.tracks.id, id), eq(schema.tracks.isPublished, true),
         isNull(schema.tracks.deletedAt))).limit(1);
-    if (!track || !track.previewUrl) return createErrorResponse("TRACK_NOT_FOUND", "Track not found.", 404);
+    if (!track) return createErrorResponse("TRACK_NOT_FOUND", "Track not found.", 404);
+    if (!track.previewUrl) return createErrorResponse("PREVIEW_UNAVAILABLE", "This track has no preview.", 404);
     const source = new URL(track.previewUrl);
     if (source.protocol !== "https:" || !source.hostname.endsWith(".private.blob.vercel-storage.com"))
       return createErrorResponse("MEDIA_UNAVAILABLE", "Preview is unavailable.", 503);

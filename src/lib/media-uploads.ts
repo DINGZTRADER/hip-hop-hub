@@ -8,6 +8,7 @@ export async function reserveMediaUpload(userId: string, pathname: string, reque
   const parsed = parseUploadPath(pathname, userId);
   if (!parsed) throw new AppError("INVALID_UPLOAD", "Invalid upload path.", 400);
   const { id, kind } = parsed;
+  if (kind !== "master") throw new AppError("PREVIEW_DISABLED", "Short preview uploads are disabled for now.", 400);
   const limit = kind === "master" ? MAX_MASTER_BYTES : MAX_PREVIEW_BYTES;
   if (!validUploadSize(kind, requestedBytes))
     throw new AppError("UPLOAD_SIZE", `MP3 must be between 1 KB and ${limit / 1048576} MB.`, 400);
@@ -31,7 +32,7 @@ export async function reserveMediaUpload(userId: string, pathname: string, reque
     if (Number(usage.bytes) + requestedBytes > FREE_STORAGE_BYTES)
       throw new AppError("STORAGE_LIMIT", "The 500 MB artist storage limit would be exceeded.", 400);
     if ((kind === "master" ? usage.masters : usage.previews) >= 10)
-      throw new AppError("UPLOAD_LIMIT", "You can keep at most 10 files of each type.", 400);
+      throw new AppError("UPLOAD_LIMIT", "Too many unfinished MP3 uploads. Remove an unused upload before trying again.", 400);
     await tx.insert(schema.mediaUploads).values({ id, userId, kind, pathname,
       reservedBytes: requestedBytes, expiresAt: new Date(Date.now() + 60 * 60 * 1000) });
   });

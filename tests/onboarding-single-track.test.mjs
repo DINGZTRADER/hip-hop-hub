@@ -16,7 +16,7 @@ function service(uploads = []) {
   const aliases = {
     'drizzle-orm': {and: (...args) => args, eq: (...args) => args, inArray: (...args) => args},
     '@/db': {requireDb: () => ({transaction: cb => cb(tx)}), schema},
-    './pagination': {}, './media': {}, './errors': {AppError},
+    './artist-track-policy': {MAX_ARTIST_TRACKS: 1}, './pagination': {}, './media': {}, './errors': {AppError},
   };
   const loaded = new Module(import.meta.url);
   loaded.require = id => Object.hasOwn(aliases, id) ? aliases[id] : require(id);
