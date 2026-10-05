@@ -25,7 +25,10 @@ export const revalidate = 60; // ISR cache
 
 export default async function ArtistZonePage({ params }: ArtistPageProps) {
   const { stageName } = await params;
-  const artist = await getArtistByStageName(stageName);
+  let decodedStageName: string;
+  try { decodedStageName = decodeURIComponent(stageName); }
+  catch { notFound(); }
+  const artist = await getArtistByStageName(decodedStageName);
 
   if (!artist) {
     notFound();
