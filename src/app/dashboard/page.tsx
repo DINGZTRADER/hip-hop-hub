@@ -152,6 +152,8 @@ export default function ArtistDashboardPage() {
         storageUsedBytes: artist.storageUsedBytes + newTrackForm.filesizeBytes,
       });
 
+      setNewTrackForm({title:"",fileUrl:"",masterUploadId:"",masterName:"",durationSeconds:0,filesizeBytes:0,priceUgx:3000});
+      setOriginalsConfirmed(false);
       setTimeout(() => {
         setShowAddTrackModal(false);
         setAddTrackSuccess("");
@@ -193,7 +195,7 @@ export default function ArtistDashboardPage() {
             {currentArtist ? `${currentArtist.stageName}'s Hub` : "Artist Dashboard"}
           </h1>
           <p className="text-xs text-ug-muted mt-1">
-            Manage your 10s hero reel, track sales, Mobile Money wallet, and live event bookings
+            Upload MP3s, manage your artist stage and music videos, and track sales and bookings
           </p>
         </div>
 
@@ -273,7 +275,7 @@ export default function ArtistDashboardPage() {
                 <p className="text-2xl font-black text-white">
                   {currentArtist?.tracks?.length || 0}
                 </p>
-                <p className="text-[11px] text-ug-muted">MP3 Track (Limit 1)</p>
+                <p className="text-[11px] text-ug-muted">MP3 Tracks (Limit 10)</p>
               </div>
               <div>
                 <p className="text-2xl font-black text-ug-red">
@@ -368,7 +370,7 @@ export default function ArtistDashboardPage() {
                 <div>
                   <p className="font-bold text-white text-sm">{t.title}</p>
                   <p className="text-ug-muted mt-0.5">
-                    {t.playCount.toLocaleString()} plays • {t.downloadCount.toLocaleString()} downloads •{" "}
+                    {t.playCount.toLocaleString()} plays • {(t.purchaseCount || 0).toLocaleString()} buys / {t.downloadCount.toLocaleString()} downloads •{" "}
                     {(t.filesizeBytes / (1024 * 1024)).toFixed(1)} MB
                   </p>
                 </div>

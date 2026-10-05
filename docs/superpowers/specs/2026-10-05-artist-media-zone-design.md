@@ -49,6 +49,8 @@ Use an additive SQL migration with explicit indexes and constraints; do not run 
 
 ## Acceptance evidence
 
+User-approved execution steering adds qualified play counting, completed-purchase buy totals, and explicit My Hub MP3/video editing. Plays require signed-in listening for 30 seconds or half a shorter track and deduplicate per listener/track/30-minute window. Buys count completed purchases separately from downloads. Same-track replay and expired play sessions must renew; unrelated dashboard updates and image uploads must preserve unsaved profile edits.
+
 Automated checks cover registration with 1 and 10 masters; rejection of 0 and 11; dashboard acceptance of the tenth and rejection of the eleventh; concurrent quota/cap protection; unchanged no-preview and purchase-download rules; valid, duplicate, hostile-host, and oversized YouTube lists; owner-only profile editing and image claiming; image formats, byte/dimension limits, optimization and metadata removal; draft visibility, replacement failure, quota accounting, and cleanup retry behavior.
 
 Run the complete existing suite, TypeScript checks, and production build. Verify production deployment matches the tested commit. In the authenticated artist session, check existing Change playback and that saved profile metadata survives reload. Use isolated temporary fixtures for destructive boundary tests; do not overwrite the artist's real photos or music. Verify signed-out public rendering, image URLs, empty-state fallbacks, mobile layout, reduced-motion behavior, and YouTube/MP3 pause coordination. Record separately any acceptance check requiring artist-supplied files; never claim those passed without real upload evidence.

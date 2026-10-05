@@ -21,8 +21,8 @@ export function VirtualDjBooth({artist}:{artist:Artist}) {
   </div>
   <p className="mt-5 text-[10px] font-mono uppercase tracking-widest text-ug-muted">{playing?"Now playing":"On the record"}</p>
   <h3 className="mt-1 font-black text-xl text-white break-words">{activeTrack?.title||"Your original sound"}</h3>
-  {activeTrack&&<p className="mt-1 text-xs text-ug-muted">{Math.floor(activeTrack.durationSeconds/60)}:{(activeTrack.durationSeconds%60).toString().padStart(2,"0")} ? MP3 Master ? <span className="text-ug-gold">UGX {activeTrack.priceUgx.toLocaleString()}</span></p>}
-  {!playable&&activeTrack&&<p className="mt-2 text-xs text-ug-muted">No public preview ? buy the original MP3 below</p>}
-  {activeTrack?.playbackUrl&&<p className="mt-2 text-xs text-emerald-400">Owner access ? play your full MP3</p>}
+  {activeTrack&&<p className="mt-1 text-xs text-ug-muted">{Math.floor(activeTrack.durationSeconds/60)}:{(activeTrack.durationSeconds%60).toString().padStart(2,"0")} / MP3 Master / <span className="text-ug-gold">UGX {activeTrack.priceUgx.toLocaleString()}</span></p>}
+  {!playable&&activeTrack&&<p className="mt-2 text-xs text-ug-muted">No public preview / buy the original MP3 below</p>}
+  {activeTrack?.playbackUrl&&<p className="mt-2 text-xs text-emerald-400">Owner access / play your full MP3</p>}
  </section>;
 }

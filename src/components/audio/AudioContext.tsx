@@ -31,7 +31,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const [selectedTrackForPurchase, setSelectedTrackForPurchase] = useState<Track | null>(null);
 
   const [playCounts,setPlayCounts]=useState<Record<string,number>>({});
-  const listening=useRef<{trackId:string;ticket:string;seconds:number;listened:number;lastTime:number;counted:boolean;pending:boolean;retryAt:number}|null>(null);
+  const selectedTrackId=useRef<string|null>(null);
+  const listening=useRef<{startedAt:number;trackId:string;ticket:string;seconds:number;listened:number;lastTime:number;counted:boolean;pending:boolean;retryAt:number}|null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -41,7 +42,14 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
       const audio = audioRef.current;
 
+      const ensureListeningSession = () => {
+        const trackId=selectedTrackId.current; if(!trackId) return;
+        if(listening.current && Date.now()-listening.current.startedAt<30*60*1000) return;
+        const session={startedAt:Date.now(),trackId,ticket:"",seconds:30,listened:0,lastTime:audio.currentTime,counted:false,pending:false,retryAt:0}; listening.current=session;
+        fetch(`/api/tracks/${trackId}/play`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phase:"start"})}).then(async response=>{if(response.ok){const result=await response.json();session.ticket=result.ticket;session.seconds=result.seconds;}}).catch(()=>{});
+      };
       const handleTimeUpdate = () => {
+        if(!audio.paused) ensureListeningSession();
         if (audio) setCurrentTime(audio.currentTime);
         const session=listening.current;
         if(session&&!audio.paused){const delta=audio.currentTime-session.lastTime;session.lastTime=audio.currentTime;if(delta>0&&delta<2)session.listened+=delta;if(!session.counted&&!session.pending&&Date.now()>=session.retryAt&&session.ticket&&session.listened>=session.seconds){session.pending=true;session.retryAt=Date.now()+30000;fetch(`/api/tracks/${session.trackId}/play`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phase:'complete',ticket:session.ticket})}).then(async response=>{if(response.ok){const result=await response.json();session.counted=true;setPlayCounts(previous=>({...previous,[session.trackId]:result.playCount}));}}).catch(()=>{}).finally(()=>{session.pending=false;});}}
@@ -53,11 +61,12 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       };
 
       const handleEnded = () => {
+        listening.current=null;
         setIsPlaying(false);
         setCurrentTime(0);
       };
 
-      const handlePlay = () => setIsPlaying(true);
+      const handlePlay = () => {ensureListeningSession();setIsPlaying(true);};
       const handlePause = () => setIsPlaying(false);
 
       audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -94,8 +103,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     setCurrentTime(0);
     setDuration(0);
     audioRef.current.src = source;
-    const session={trackId:track.id,ticket:'',seconds:30,listened:0,lastTime:0,counted:false,pending:false,retryAt:0};listening.current=session;
-    fetch(`/api/tracks/${track.id}/play`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phase:'start'})}).then(async response=>{if(response.ok){const result=await response.json();session.ticket=result.ticket;session.seconds=result.seconds;}}).catch(()=>{});
+    selectedTrackId.current=track.id; listening.current=null;
     audioRef.current.play().catch((err) => {
       console.warn("Audio autoplay blocked or failed:", err);
     });
