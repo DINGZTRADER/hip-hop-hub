@@ -1,1 +1,1 @@
-export const MAX_ARTIST_TRACKS = 1;
+export const MAX_ARTIST_TRACKS = 10;

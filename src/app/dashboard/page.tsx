@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Mp3Upload } from "@/components/audio/Mp3Upload";
+import { ArtistProfileManager } from "@/components/artist/ArtistProfileManager";
+import { storageQuotaBytes } from "@/lib/artist-media-policy";
 import { MAX_ARTIST_TRACKS } from "@/lib/artist-track-policy";
 import {
   Wallet,
@@ -34,6 +36,7 @@ export default function ArtistDashboardPage() {
   const [isUpdatingVideo, setIsUpdatingVideo] = useState<boolean>(false);
   const [videoSuccess, setVideoSuccess] = useState<boolean>(false);
 
+  const [originalsConfirmed,setOriginalsConfirmed]=useState(false);
   const [isUploadingMp3, setIsUploadingMp3] = useState(false);
 
   // Add new track modal state
@@ -115,12 +118,13 @@ export default function ArtistDashboardPage() {
     e.preventDefault();
     if (!artist || isUploadingMp3) return;
     if ((artist.tracks?.length ?? 0) >= MAX_ARTIST_TRACKS) {
-      setAddTrackError("One original MP3 is allowed for now."); return;
+      setAddTrackError("Up to 10 original MP3 tracks are allowed."); return;
     }
     if (!newTrackForm.fileUrl || !newTrackForm.masterUploadId) {
       setAddTrackError("Upload your full MP3 first."); return;
     }
 
+    if(!originalsConfirmed){setAddTrackError("Confirm this is your original music.");return;}
     setIsAddingTrack(true);
     setAddTrackError("");
     setAddTrackSuccess("");
@@ -131,7 +135,7 @@ export default function ArtistDashboardPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           artistId: artist.id,
-          ...newTrackForm,
+          ...newTrackForm, originalsConfirmed,
         }),
       });
 
@@ -171,7 +175,7 @@ export default function ArtistDashboardPage() {
   const storageMB = currentArtist ? (currentArtist.storageUsedBytes / (1024 * 1024)).toFixed(1) : "0";
   const storagePct = Math.min(
     100,
-    currentArtist ? (currentArtist.storageUsedBytes / (500 * 1024 * 1024)) * 100 : 0
+    currentArtist ? (currentArtist.storageUsedBytes / storageQuotaBytes(currentArtist.subscriptionTier)) * 100 : 0
   );
 
   return (
@@ -232,12 +236,12 @@ export default function ArtistDashboardPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-mono font-bold text-ug-muted uppercase">
-                STORAGE QUOTA (500MB LIMIT)
+                STORAGE QUOTA ({currentArtist ? storageQuotaBytes(currentArtist.subscriptionTier)/1048576 : 500} MB LIMIT)
               </span>
               <span className="text-xs font-bold text-ug-gold">{storagePct.toFixed(0)}%</span>
             </div>
 
-            <p className="text-2xl font-black text-white">{storageMB} MB / 500 MB</p>
+            <p className="text-2xl font-black text-white">{storageMB} MB / {currentArtist ? storageQuotaBytes(currentArtist.subscriptionTier)/1048576 : 500} MB</p>
 
             <div className="w-full h-2 bg-ug-card rounded-full mt-3 overflow-hidden border border-ug-border">
               <div
@@ -333,6 +337,7 @@ export default function ArtistDashboardPage() {
         )}
       </section>
 
+      {currentArtist && <ArtistProfileManager artist={currentArtist} onSaved={setArtist}/>}
       {/* Tracks Management Table */}
       <section className="bg-ug-surface rounded-3xl border border-ug-border p-6 md:p-8 shadow-xl mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-ug-border gap-4">
@@ -341,7 +346,7 @@ export default function ArtistDashboardPage() {
               <Music className="w-5 h-5 text-ug-gold" />
               <h2 className="text-xl font-black text-white">Your MP3 Master Tracks</h2>
             </div>
-            <p className="text-xs text-ug-muted mt-1">One original MP3 for now. No short preview required.</p>
+            <p className="text-xs text-ug-muted mt-1">Up to 10 original MP3 tracks. No short preview required.</p>
           </div>
 
           <button
@@ -565,6 +570,7 @@ export default function ArtistDashboardPage() {
                 onUploaded={uploaded => setNewTrackForm(previous => ({...previous, ...uploaded}))} />
               <p className="text-xs text-ug-muted">Upload one original full MP3. No short preview is required.</p>
 
+              <label className="flex gap-2 text-xs text-ug-muted"><input type="checkbox" checked={originalsConfirmed} onChange={e=>setOriginalsConfirmed(e.target.checked)}/>I confirm this track is my original music.</label>
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"

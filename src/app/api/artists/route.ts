@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     if (!session || !["ARTIST", "FAN"].includes(session.role) || session.artistId)
       return createErrorResponse("FORBIDDEN", "Sign in with an account without an artist profile.", 403);
     const body = await request.json();
+    if (body.originalsConfirmed !== true) return createErrorResponse("ORIGINALS_REQUIRED", "Confirm these tracks and videos are your original music.", 400);
     if (typeof body.stageName !== "string" || !body.stageName.trim() ||
       typeof body.realName !== "string" || !body.realName.trim() ||
       typeof body.dob !== "string" || Number.isNaN(Date.parse(body.dob)) ||

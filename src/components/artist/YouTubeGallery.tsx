@@ -1,81 +1,25 @@
 "use client";
-
-import React from "react";
-import { ArtistYouTubeVideo } from "@/types";
-import { Youtube, ExternalLink } from "lucide-react";
-
-interface YouTubeGalleryProps {
-  videos?: ArtistYouTubeVideo[];
-  stageName: string;
-}
-
-export function YouTubeGallery({ videos, stageName }: YouTubeGalleryProps) {
-  if (!videos || videos.length === 0) return null;
-
-  const getEmbedUrl = (rawUrl: string) => {
-    try {
-      if (rawUrl.includes("watch?v=")) {
-        const id = rawUrl.split("watch?v=")[1].split("&")[0];
-        return `https://www.youtube.com/embed/${id}`;
-      } else if (rawUrl.includes("youtu.be/")) {
-        const id = rawUrl.split("youtu.be/")[1].split("?")[0];
-        return `https://www.youtube.com/embed/${id}`;
-      }
-      return rawUrl;
-    } catch {
-      return rawUrl;
-    }
-  };
-
-  return (
-    <div className="bg-ug-surface rounded-3xl border border-ug-border p-6 md:p-8 shadow-xl">
-      <div className="flex items-center justify-between pb-6 border-b border-ug-border/80">
-        <div className="flex items-center gap-2">
-          <Youtube className="w-6 h-6 text-ug-red" />
-          <h3 className="text-2xl font-black text-white">Visuals & Music Videos</h3>
-        </div>
-        <span className="text-xs text-ug-muted font-mono uppercase">
-          Top 3 Official Videos
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-        {videos.slice(0, 3).map((video, idx) => {
-          const embedUrl = getEmbedUrl(video.youtubeUrl);
-
-          return (
-            <div
-              key={video.id || idx}
-              className="bg-ug-card rounded-2xl border border-ug-border overflow-hidden shadow-lg flex flex-col group hover:border-ug-gold transition"
-            >
-              <div className="relative aspect-video w-full bg-black">
-                <iframe
-                  src={embedUrl}
-                  title={video.videoTitle || `${stageName} Visual ${idx + 1}`}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="w-full h-full border-0"
-                />
-              </div>
-
-              <div className="p-4 flex items-center justify-between">
-                <p className="font-bold text-sm text-white truncate">
-                  {video.videoTitle || `Official Video ${idx + 1}`}
-                </p>
-                <a
-                  href={video.youtubeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-ug-muted hover:text-ug-gold transition"
-                  title="Open on YouTube"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+import {useEffect,useRef,useState} from "react";
+import {ArtistYouTubeVideo} from "@/types";
+import {getYouTubeVideoId,MAX_ARTIST_VIDEOS} from "@/lib/artist-media-policy";
+import {loadYouTubeApi,YouTubePlayer} from "@/lib/youtube-iframe";
+import {useAudio} from "../audio/AudioContext";
+export function YouTubeGallery({videos=[],stageName}:{videos?:ArtistYouTubeVideo[];stageName:string}) {
+ const valid=videos.filter(video=>getYouTubeVideoId(video.youtubeUrl)).slice(0,MAX_ARTIST_VIDEOS);
+ const [selected,setSelected]=useState(0),[error,setError]=useState(''),[origin,setOrigin]=useState('');
+ const iframe=useRef<HTMLIFrameElement>(null),player=useRef<YouTubePlayer|null>(null);
+ const {pauseTrack,isPlaying}=useAudio();const pause=useRef(pauseTrack),audioPlaying=useRef(isPlaying);pause.current=pauseTrack;audioPlaying.current=isPlaying;
+ const video=valid[selected]||valid[0];const id=video?getYouTubeVideoId(video.youtubeUrl):null;
+ useEffect(()=>setOrigin(window.location.origin),[]);
+ useEffect(()=>{if(isPlaying)player.current?.pauseVideo();},[isPlaying]);
+ useEffect(()=>{
+  if(!id||!origin||!iframe.current)return;
+  let active=true;const frame=iframe.current;setError('');
+  loadYouTubeApi().then(api=>{if(!active)return;const current=new api.Player(frame,{events:{onReady:()=>{if(active&&audioPlaying.current)current.pauseVideo();},onStateChange:event=>{if(active&&event.data===1)pause.current();},onError:()=>{if(active)setError('This video cannot play here. Open it on YouTube.');}}});player.current=current;}).catch(()=>{if(active)setError('Video controls unavailable. Open it on YouTube.');});
+  return()=>{active=false;const current=player.current;player.current=null;current?.destroy();};
+ },[id,origin]);
+ return <section className="min-w-0 p-5 lg:p-6 space-y-4">
+  <div><p className="text-[10px] font-mono uppercase tracking-widest text-ug-red">Original music videos</p><h2 className="mt-2 text-lg font-black text-white">Watch {stageName}</h2></div>
+  {video&&id?<><div className="aspect-video w-full overflow-hidden rounded-xl bg-black border border-ug-border"><iframe key={id} ref={iframe} src={`https://www.youtube.com/embed/${id}?enablejsapi=1&playsinline=1${origin?`&origin=${encodeURIComponent(origin)}`:''}`} title={video.videoTitle||`${stageName} official video`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen className="h-full w-full border-0"/></div>{error&&<p role="status" className="text-xs text-ug-muted">{error}</p>}<a href={`https://www.youtube.com/watch?v=${id}`} target="_blank" rel="noopener noreferrer" className="block text-xs text-ug-gold">Open selected video on YouTube ?</a><div className="max-h-64 overflow-y-auto space-y-1 pr-1">{valid.map((item,index)=><button key={item.id} type="button" onClick={()=>setSelected(index)} aria-pressed={selected===index} className={`flex items-center gap-3 w-full rounded-xl px-3 py-3 text-left text-xs border ${selected===index?'border-ug-gold/30 bg-ug-gold/10 text-ug-gold':'border-transparent bg-ug-card/40 text-ug-muted hover:text-white'}`}><span className="font-mono text-[10px]">{String(index+1).padStart(2,'0')}</span><span className="min-w-0 break-words">{item.videoTitle||`Official video ${index+1}`}</span></button>)}</div><p className="text-[10px] text-ug-muted">{valid.length} / 10 original music videos</p></>:<div className="rounded-xl border border-dashed border-ug-border px-4 py-8 text-xs text-ug-muted">The artist has not added music videos yet.</div>}
+ </section>;
 }

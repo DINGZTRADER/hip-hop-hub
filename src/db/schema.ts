@@ -77,6 +77,7 @@ export const artists = pgTable(
     socialFacebook: varchar("social_facebook", { length: 255 }),
     phoneForBookings: varchar("phone_for_bookings", { length: 50 }),
     bookingEmail: varchar("booking_email", { length: 255 }),
+    websiteUrl: text("website_url"),
     heroVideoMp4Url: text("hero_video_mp4_url"),
     heroVideoDurationSecs: numeric("hero_video_duration_secs", { precision: 4, scale: 1 }).default("10.0"),
     storageUsedBytes: bigint("storage_used_bytes", { mode: "number" }).default(0).notNull(),
@@ -93,7 +94,7 @@ export const artists = pgTable(
   ]
 );
 
-// 3. MP3 tracks (one new track per artist; existing catalog retained)
+// 3. MP3 tracks (up to ten original tracks per artist)
 export const tracks = pgTable(
   "tracks",
   {
@@ -138,7 +139,31 @@ export const mediaUploads = pgTable(
   (table) => [index("idx_media_uploads_user_status").on(table.userId, table.status)]
 );
 
-// 4. YouTube Videos (Up to 3)
+export const artistImageAssets = pgTable("artist_image_assets", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  artistId: uuid("artist_id").references(() => artists.id, { onDelete: "cascade" }),
+  purpose: varchar("purpose", { length: 10 }).notNull(),
+  orderIndex: smallint("order_index").default(0).notNull(),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  width: integer("width").notNull(), height: integer("height").notNull(),
+  pathname: text("pathname").unique().notNull(), blobUrl: text("blob_url"),
+  reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull(),
+  actualBytes: bigint("actual_bytes", { mode: "number" }),
+  status: varchar("status", { length: 10 }).default("PENDING").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, table => [index("idx_artist_images_owner_status").on(table.userId, table.status), index("idx_artist_images_artist").on(table.artistId, table.orderIndex)]);
+
+export const trackPlayEvents = pgTable("track_play_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  trackId: uuid("track_id").notNull().references(() => tracks.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// 4. YouTube Videos (up to ten original videos)
 export const artistYoutubeVideos = pgTable("artist_youtube_videos", {
   id: uuid("id").defaultRandom().primaryKey(),
   artistId: uuid("artist_id")

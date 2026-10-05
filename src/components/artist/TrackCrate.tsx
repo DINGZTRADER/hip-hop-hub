@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, {useEffect, useState} from "react";
 import { Track } from "@/types";
 import { useAudio } from "../audio/AudioContext";
 import { Play, Pause, Download, Music2, ShoppingBag, ShieldCheck } from "lucide-react";
@@ -11,7 +11,11 @@ interface TrackCrateProps {
 }
 
 export function TrackCrate({ tracks, stageName }: TrackCrateProps) {
-  const { playTrack, currentTrack, isPlaying, openCheckout } = useAudio();
+  const { playTrack, currentTrack, isPlaying, openCheckout, playCounts } = useAudio();
+
+  const [stats,setStats]=useState<Record<string,{playCount:number;purchaseCount:number}>>({});
+  const ids=tracks.map(track=>track.id).join(',');
+  useEffect(()=>{if(!ids)return;let active=true;const update=()=>{fetch(`/api/tracks/stats?ids=${encodeURIComponent(ids)}`,{cache:'no-store'}).then(response=>response.ok?response.json():null).then(data=>{if(active&&data?.tracks)setStats(Object.fromEntries(data.tracks.map((track:{id:string;playCount:number;purchaseCount:number})=>[track.id,track])));}).catch(()=>{});};update();window.addEventListener('focus',update);return()=>{active=false;window.removeEventListener('focus',update);};},[ids]);
 
   const formatDuration = (secs: number) => {
     const mins = Math.floor(secs / 60);
@@ -79,11 +83,11 @@ export function TrackCrate({ tracks, stageName }: TrackCrateProps) {
                   <p className="text-xs text-ug-muted flex items-center gap-3 mt-0.5">
                     <span>{formatDuration(track.durationSeconds)}</span>
                     <span>•</span>
-                    <span>{track.playCount.toLocaleString()} plays</span>
+                    <span>{Math.max(track.playCount,stats[track.id]?.playCount||0,playCounts?.[track.id]||0).toLocaleString()} plays</span>
                     <span>•</span>
                     <span className="flex items-center gap-1">
                       <Download className="w-3 h-3" />
-                      {track.downloadCount.toLocaleString()} buys
+                      {(stats[track.id]?.purchaseCount ?? track.purchaseCount ?? 0).toLocaleString()} buys
                     </span>
                   </p>
                 </div>

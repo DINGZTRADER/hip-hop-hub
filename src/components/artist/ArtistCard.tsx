@@ -47,7 +47,8 @@ export function ArtistCard({ artist }: ArtistCardProps) {
         <div className="flex items-center gap-4 my-2">
           {/* Virtual Vinyl Disc Icon */}
           <div className="relative w-16 h-16 rounded-full vinyl-grooves border-2 border-zinc-700 flex items-center justify-center shadow-lg group-hover:border-ug-gold transition">
-            <div className={`w-6 h-6 rounded-full bg-ug-gold flex items-center justify-center ${isThisArtistPlaying ? "animate-spin-slow text-glow-gold" : ""}`}>
+            <div className={`relative overflow-hidden w-9 h-9 rounded-full bg-ug-gold flex items-center justify-center ${isThisArtistPlaying ? "animate-spin-slow motion-reduce:animate-none text-glow-gold" : ""}`}>
+              {artist.portrait && <img src={artist.portrait.url} alt={`${artist.stageName} portrait`} className="absolute inset-0 h-full w-full object-cover"/>}
               <div className="w-2 h-2 rounded-full bg-black" />
             </div>
           </div>

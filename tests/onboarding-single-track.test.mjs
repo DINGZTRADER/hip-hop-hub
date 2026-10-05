@@ -16,7 +16,7 @@ function service(uploads = []) {
   const aliases = {
     'drizzle-orm': {and: (...args) => args, eq: (...args) => args, inArray: (...args) => args},
     '@/db': {requireDb: () => ({transaction: cb => cb(tx)}), schema},
-    './artist-track-policy': {MAX_ARTIST_TRACKS: 1}, './pagination': {}, './media': {}, './errors': {AppError},
+    './track-statistics': {}, './artist-images': {}, './artist-profile': {}, './artist-profile-input': {validateArtistProfileInput: () => ({})}, './media-quota': {lockMediaOwner: async () => undefined}, './artist-media-policy': {normalizeArtistVideos: () => []}, './artist-track-policy': {MAX_ARTIST_TRACKS: 10}, './pagination': {}, './media': {}, './errors': {AppError},
   };
   const loaded = new Module(import.meta.url);
   loaded.require = id => Object.hasOwn(aliases, id) ? aliases[id] : require(id);
@@ -29,8 +29,8 @@ test('one verified master without a preview reaches artist creation', async () =
   const api = service([{kind: 'master', blobUrl: track.fileUrl, actualBytes: 5000}]);
   await assert.rejects(api.registerArtist({...profile, initialTracks: [track]}), error => error === accepted);
 });
-test('registration requires exactly one track', async () => {
-  for (const tracks of [[], [track, {...track, fileUrl: 'another'}], [track, track, track]])
+test('registration rejects zero and eleven tracks', async () => {
+  for (const tracks of [[], Array.from({length: 11}, () => track)])
     await assert.rejects(service().registerArtist({...profile, initialTracks: tracks}), error => error.code === 'TRACK_COUNT');
 });
 test('preview URLs cannot expose a master as a free preview', async () => {
@@ -39,4 +39,10 @@ test('preview URLs cannot expose a master as a free preview', async () => {
 test('unowned, unverified, wrong-kind and mismatched-size uploads cannot register', async () => {
   for (const uploads of [[], [{kind: 'preview', blobUrl: track.fileUrl, actualBytes: 5000}], [{kind: 'master', blobUrl: track.fileUrl, actualBytes: 4000}]])
     await assert.rejects(service(uploads).registerArtist({...profile, initialTracks: [track]}), error => error.code === 'INVALID_TRACK');
+});
+
+test('ten distinct owned masters reach registration', async () => {
+ const tracks = Array.from({length:10}, (_,i)=>({...track,fileUrl:track.fileUrl+i}));
+ const api=service(tracks.map(t=>({kind:'master',blobUrl:t.fileUrl,actualBytes:5000})));
+ await assert.rejects(api.registerArtist({...profile,initialTracks:tracks}),e=>e===accepted);
 });

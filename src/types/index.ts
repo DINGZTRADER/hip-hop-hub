@@ -38,6 +38,9 @@ export interface Artist {
   socials: ArtistSocials;
   phoneForBookings?: string | null;
   bookingEmail?: string | null;
+  websiteUrl?: string | null;
+  portrait?: ArtistImage | null;
+  photos?: ArtistImage[];
   heroVideoMp4Url?: string | null;
   heroVideoDurationSecs?: number;
   storageUsedBytes: number; // Max 500MB (524,288,000 bytes) for FREE
@@ -56,6 +59,11 @@ export interface Artist {
   services?: ArtistService[];
 }
 
+export interface ArtistImage {
+  id: string; url: string; purpose: "portrait" | "gallery"; orderIndex: number;
+  filesizeBytes: number; width: number; height: number; filename: string;
+}
+
 export interface Track {
   id: string;
   artistId: string;
@@ -69,6 +77,7 @@ export interface Track {
   priceUsd: number;
   playCount: number;
   downloadCount: number;
+  purchaseCount?: number;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;

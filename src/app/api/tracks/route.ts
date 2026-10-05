@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const artist = await getArtistById(artistId);
     if (!artist || artist.userId !== session.userId)
       return createErrorResponse("FORBIDDEN", "Not your artist profile.", 403);
+    if (body.originalsConfirmed !== true) return createErrorResponse("ORIGINALS_REQUIRED", "Confirm this is your original music.", 400);
     if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 255 ||
       typeof body.fileUrl !== "string" || !/^https:\/\//i.test(body.fileUrl) ||
       (body.previewUrl !== undefined && body.previewUrl !== "") ||
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     const track = await addTrackToArtist(artistId, { title: body.title.trim(),
       durationSeconds: body.durationSeconds, fileUrl: body.fileUrl, previewUrl: body.previewUrl,
       filesizeBytes: body.filesizeBytes, priceUgx: body.priceUgx,
-      priceUsd: Number(body.priceUsd) || 0.99, isPublished: true });
+      priceUsd: Number(body.priceUsd) || 0.99, isPublished: true }, session.userId);
     return NextResponse.json({ success: true, track }, { status: 201 });
   } catch (error) { return handleApiError(error); }
 }

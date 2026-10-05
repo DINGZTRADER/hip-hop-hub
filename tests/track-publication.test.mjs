@@ -28,17 +28,17 @@ function service(count, uploads, tier = 'FREE') {
     insert: () => ({values: value => {inserted = value; return {returning: async () => [{...value, id: 'track', createdAt: new Date(), updatedAt: new Date()}]};}}),
     update: table => ({set: value => ({where: async () => {updates.push({table, value});}})}),
   };
-  const api = load('src/lib/data-service.ts', {'drizzle-orm': operators, '@/db': {requireDb: () => ({transaction: cb => cb(tx)}), schema}, './pagination': {}, './artist-track-policy': {MAX_ARTIST_TRACKS: 1}, './errors': {AppError}});
+  const api = load('src/lib/data-service.ts', {'drizzle-orm': operators, '@/db': {requireDb: () => ({transaction: cb => cb(tx)}), schema}, './pagination': {}, './track-statistics': {}, './artist-images': {}, './artist-profile': {}, './artist-profile-input': {validateArtistProfileInput: () => ({})}, './media-quota': {lockMediaOwner: async () => undefined}, './artist-media-policy': {normalizeArtistVideos: () => []}, './artist-track-policy': {MAX_ARTIST_TRACKS: 10}, './errors': {AppError}});
   return {api, updates, schema, inserted: () => inserted};
 }
 const data = {title: 'Song', fileUrl: 'https://private.test/song.mp3', durationSeconds: 180, filesizeBytes: 5000, priceUgx: 3000, priceUsd: 0.99, isPublished: true};
-test('dashboard publication enforces one track for free and pro artists', async () => {
+test('dashboard publication enforces ten tracks for free and pro artists', async () => {
   for (const tier of ['FREE', 'PRO']) {
-    await assert.rejects(service(1, [], tier).api.addTrackToArtist('artist', data), error => error.code === 'TRACK_LIMIT_EXCEEDED');
+    await assert.rejects(service(10, [], tier).api.addTrackToArtist('artist', data), error => error.code === 'TRACK_LIMIT_EXCEEDED');
   }
 });
 test('publication accepts an owned verified master, stores no preview, claims upload and accounts for bytes', async () => {
-  const fixture = service(0, [{id: 'upload', kind: 'master', actualBytes: 5000}]);
+  const fixture = service(9, [{id: 'upload', kind: 'master', actualBytes: 5000}]);
   const track = await fixture.api.addTrackToArtist('artist', data);
   assert.equal(fixture.inserted().previewUrl, '');
   assert.equal(track.previewUrl, '');
@@ -51,6 +51,6 @@ test('publication rejects missing, wrong-kind and mismatched-size masters', asyn
     await assert.rejects(service(0, uploads).api.addTrackToArtist('artist', data), error => error.code === 'INVALID_TRACK');
 });
 test('new preview upload reservations are rejected before accessing storage or database', async () => {
-  const api = load('src/lib/media-uploads.ts', {'@vercel/blob': {}, 'drizzle-orm': operators, '@/lib/errors': {AppError}, '@/db': {requireDb: () => {throw new Error('Database must not be reached');}}, './media-upload-policy': {parseUploadPath: () => ({id: 'upload', kind: 'preview'})}});
+  const api = load('src/lib/media-uploads.ts', {'@vercel/blob': {}, 'drizzle-orm': operators, '@/lib/errors': {AppError}, '@/db': {requireDb: () => {throw new Error('Database must not be reached');}}, './media-quota': {}, './media-upload-policy': {parseUploadPath: () => ({id: 'upload', kind: 'preview'})}});
   await assert.rejects(api.reserveMediaUpload('owner', 'preview-path', 5000), error => error.code === 'PREVIEW_DISABLED');
 });

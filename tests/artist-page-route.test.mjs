@@ -10,6 +10,7 @@ function page(artist = null, session = null) {
   const lookups = [];
   const loaded = new Module(import.meta.url);
   loaded.require = id => {
+    if (id === '@/lib/artist-media-policy') return {storageQuotaBytes: () => 524288000};
     if (id === '@/lib/auth') return {getSession: async () => session};
     if (id === 'next/navigation') return {notFound: () => {throw missing;}};
     if (id === '@/lib/data-service') return {getArtistByStageName: async name => {lookups.push(name); return artist;}};

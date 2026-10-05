@@ -49,7 +49,7 @@ export default function PricingPage() {
               <ul className="space-y-3 text-xs text-gray-300">
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>1 Original MP3 Track • No Short Preview Required</span>
+                  <span>Up to 10 Original MP3 Tracks • No Short Preview Required</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -57,7 +57,7 @@ export default function PricingPage() {
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>3 Embedded Official YouTube Videos</span>
+                  <span>Up to 10 Original YouTube Music Videos</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -105,7 +105,7 @@ export default function PricingPage() {
               <ul className="space-y-3 text-xs text-gray-200">
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-ug-gold shrink-0" />
-                  <strong className="text-white">1 Original MP3 Track for Now • No Short Preview Required</strong>
+                  <strong className="text-white">Up to 10 Original MP3 Tracks for Now • No Short Preview Required</strong>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Check className="w-4 h-4 text-ug-gold shrink-0" />

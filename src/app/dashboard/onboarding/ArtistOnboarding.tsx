@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mp3Upload } from "@/components/audio/Mp3Upload";
+import { ArtistProfileEditor, emptyArtistProfileDraft, artistProfilePayload } from "@/components/artist/ArtistProfileEditor";
+import { YouTubeLinksEditor } from "@/components/artist/YouTubeLinksEditor";
 import { MAX_ARTIST_TRACKS } from "@/lib/artist-track-policy";
 
 import {
@@ -21,7 +23,10 @@ export default function ArtistOnboardingPage() {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [activeUpload, setActiveUpload] = useState(false);
+  const [uploadingSlots, setUploadingSlots] = useState<string[]>([]);
+  const [imagesBusy,setImagesBusy]=useState(false);
+  const activeUpload=imagesBusy || uploadingSlots.length>0;
+  const [mediaProfile,setMediaProfile]=useState(emptyArtistProfileDraft);
 
   // Step 1: Artist Profile
   const [profile, setProfile] = useState({
@@ -38,7 +43,7 @@ export default function ArtistOnboardingPage() {
     bookingEmail: "",
   });
 
-  // Step 2: One original MP3
+  // Step 2: Up to ten original MP3s
   const [tracks, setTracks] = useState<Array<{
     id: string;
     title: string;
@@ -52,8 +57,8 @@ export default function ArtistOnboardingPage() {
     { id: "slot-1", title: "", durationSeconds: 180, priceUgx: 3000, fileUrl: "", filesizeBytes: 0, masterUploadId: "", masterName: "" },
   ]);
 
-  // Step 3: 3 YouTube Links & 1 MP4 Video
-  const [youtubeLinks, setYoutubeLinks] = useState<string[]>(["", "", ""]);
+  // Step 3: up to 10 YouTube Links & 1 MP4 Video
+
 
   const [heroVideoMp4Url, setHeroVideoMp4Url] = useState<string>("");
 
@@ -71,15 +76,16 @@ export default function ArtistOnboardingPage() {
 
   // Calculate current storage in MB (max 500MB)
   const trackBytes = tracks.reduce((acc, t) => acc + t.filesizeBytes, 0);
-  const videoBytes = 0;
+  const videoBytes=(mediaProfile.portrait?.filesizeBytes||0)+mediaProfile.photos.reduce((n,image)=>n+image.filesizeBytes,0);
   const totalStorageMB = ((trackBytes + videoBytes) / (1024 * 1024)).toFixed(1);
 
   const handleSubmitRegistration = async () => {
-    if (activeUpload || tracks.length !== MAX_ARTIST_TRACKS || tracks.some(track => !track.title.trim() || !track.fileUrl || track.filesizeBytes <= 0)) {
-      setErrorMsg("Upload one full MP3 and enter its title before registering.");
+    if (activeUpload || tracks.length < 1 || tracks.length > MAX_ARTIST_TRACKS || tracks.some(track => !track.title.trim() || !track.fileUrl || track.filesizeBytes <= 0)) {
+      setErrorMsg("Upload 1 to 10 full MP3s and enter their titles before registering.");
       setCurrentStep(2);
       return;
     }
+    if(!mediaProfile.originalsConfirmed){setErrorMsg("Confirm these tracks and videos are your original music.");return;}
     setIsSubmitting(true);
     setErrorMsg("");
 
@@ -91,7 +97,6 @@ export default function ArtistOnboardingPage() {
           stageName: profile.stageName,
           realName: profile.realName,
           dob: profile.dob,
-          bio: profile.bio,
           region: profile.region,
           subgenre: profile.subgenre,
           socials: {
@@ -99,10 +104,8 @@ export default function ArtistOnboardingPage() {
             x: profile.x,
             youtube: profile.youtube,
           },
-          phoneForBookings: profile.phoneForBookings,
-          bookingEmail: profile.bookingEmail,
           heroVideoMp4Url,
-          youtubeVideos: youtubeLinks.filter(Boolean),
+          ...artistProfilePayload({...mediaProfile,bio:profile.bio,phoneForBookings:profile.phoneForBookings,bookingEmail:profile.bookingEmail}),
           initialTracks: tracks,
           eventFlyer: flyer.title && flyer.eventDate && flyer.venue && flyer.flyerImageUrl ? flyer : undefined,
           freestyle: freestyle.title && freestyle.mediaUrl ? freestyle : undefined,
@@ -133,7 +136,7 @@ export default function ArtistOnboardingPage() {
           Join the Ugandan Cypher
         </h1>
         <p className="text-xs md:text-sm text-ug-muted mt-2 max-w-lg mx-auto">
-          Upload your original track, 10s video highlight, and booking rate-cards. Keep 80% on every mobile money download.
+          Upload up to 10 original tracks, 10s video highlight, and booking rate-cards. Keep 80% on every mobile money download.
         </p>
 
         {/* 500MB Quota Live Counter */}
@@ -148,7 +151,7 @@ export default function ArtistOnboardingPage() {
       <div className="flex items-center justify-between mb-8 overflow-x-auto pb-2">
         {[
           { num: 1, label: "Profile" },
-          { num: 2, label: "MP3 Track (1)" },
+          { num: 2, label: "MP3 Tracks (1?10)" },
           { num: 3, label: "10s MP4 & YouTube" },
           { num: 4, label: "Flyer & Freestyle" },
           { num: 5, label: "Gig Rates" },
@@ -322,6 +325,7 @@ export default function ArtistOnboardingPage() {
               </div>
             </div>
 
+            <ArtistProfileEditor value={mediaProfile} onChange={setMediaProfile} onBusyChange={setImagesBusy} onError={setErrorMsg} showContacts={false} showVideos={false}/>
             <div className="flex justify-end pt-4">
               <button
                 type="button"
@@ -341,17 +345,17 @@ export default function ArtistOnboardingPage() {
           </div>
         )}
 
-        {/* STEP 2: One original track */}
+        {/* STEP 2: Up to ten original tracks */}
         {currentStep === 2 && (
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black text-white flex items-center gap-2">
                   <Music className="w-5 h-5 text-ug-gold" />
-                  <span>Step 2: Original MP3 Track</span>
+                  <span>Step 2: Original MP3 Tracks (up to 10)</span>
                 </h2>
                 <p className="text-xs text-ug-muted mt-1">
-                  Upload one original full MP3. No short preview is required.
+                  Upload 1 to 10 original full MP3s. No short preview is required.
                 </p>
               </div>
 
@@ -364,6 +368,7 @@ export default function ArtistOnboardingPage() {
                   className="p-4 rounded-2xl bg-ug-card border border-ug-border flex flex-col md:flex-row items-center gap-4"
                 >
                   <span className="w-6 text-xs font-mono font-bold text-ug-muted">#{idx + 1}</span>
+                  {tracks.length>1 && <button type="button" disabled={activeUpload} onClick={async()=>{if(track.masterUploadId){const response=await fetch('/api/media-uploads/confirm',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:track.masterUploadId})});if(!response.ok){setErrorMsg('Could not remove this draft. Try again.');return;}}setTracks(previous=>previous.filter(item=>item.id!==track.id));}} className="text-xs text-red-300">Remove track</button>}
 
                   <div className="flex-1 w-full md:w-auto">
                     <input
@@ -394,7 +399,7 @@ export default function ArtistOnboardingPage() {
                   </div>
 
                   <div className="w-full space-y-3">
-                    <Mp3Upload value={track} onBusyChange={setActiveUpload} onError={setErrorMsg}
+                    <Mp3Upload value={track} onBusyChange={busy=>setUploadingSlots(previous=>busy?[...new Set([...previous,track.id])]:previous.filter(id=>id!==track.id))} onError={setErrorMsg}
                       onUploaded={uploaded => setTracks(previous => previous.map(item => item.id === track.id ? {...item, ...uploaded} : item))} />
                   </div>
                   <div className="text-xs text-emerald-400 font-bold shrink-0">
@@ -405,6 +410,7 @@ export default function ArtistOnboardingPage() {
               ))}
             </div>
 
+            <button type="button" disabled={activeUpload || tracks.length>=10} onClick={()=>setTracks(previous=>[...previous,{id:crypto.randomUUID(),title:"",durationSeconds:180,priceUgx:3000,fileUrl:"",filesizeBytes:0,masterUploadId:"",masterName:""}])} className="rounded-xl border border-ug-border px-4 py-2 text-sm text-ug-gold disabled:opacity-40">Add original MP3 ({tracks.length}/10)</button>
             <div className="flex justify-between pt-4">
               <button
                 type="button"
@@ -417,8 +423,8 @@ export default function ArtistOnboardingPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (activeUpload || tracks.length !== MAX_ARTIST_TRACKS || tracks.some(t => !t.title.trim() || !t.fileUrl || t.filesizeBytes <= 0)) {
-                    setErrorMsg("Upload one full MP3 and enter its title.");
+                  if (activeUpload || tracks.length < 1 || tracks.length > MAX_ARTIST_TRACKS || tracks.some(t => !t.title.trim() || !t.fileUrl || t.filesizeBytes <= 0)) {
+                    setErrorMsg("Upload 1 to 10 full MP3s and enter their titles.");
                     return;
                   }
                   if (trackBytes > 500 * 1048576) { setErrorMsg("The 500 MB storage limit is exceeded."); return; }
@@ -433,13 +439,13 @@ export default function ArtistOnboardingPage() {
           </div>
         )}
 
-        {/* STEP 3: 10s MP4 Video & 3 YouTube Links */}
+        {/* STEP 3: 10s MP4 Video & up to 10 YouTube Links */}
         {currentStep === 3 && (
           <div className="space-y-5">
             <div>
               <h2 className="text-xl font-black text-white flex items-center gap-2">
                 <Video className="w-5 h-5 text-ug-red" />
-                <span>Step 3: 10s Rotating MP4 Clip & 3 YouTube Videos</span>
+                <span>Step 3: 10s Rotating MP4 Clip & up to 10 YouTube Videos</span>
               </h2>
               <p className="text-xs text-ug-muted mt-1">
                 Your 10-second MP4 will cycle on the main page reel. You can replace it anytime.
@@ -463,29 +469,8 @@ export default function ArtistOnboardingPage() {
               </p>
             </div>
 
-            {/* 3 YouTube Links */}
-            <div className="space-y-3">
-              <label className="block text-xs font-semibold text-white">
-                3 YouTube Music Video Links
-              </label>
-              {youtubeLinks.map((link, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-ug-muted w-6">#{i + 1}</span>
-                  <input
-                    type="text"
-                    value={link}
-                    onChange={(e) => {
-                      const copy = [...youtubeLinks];
-                      copy[i] = e.target.value;
-                      setYoutubeLinks(copy);
-                    }}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    className="w-full bg-ug-card border border-ug-border rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-ug-gold font-mono"
-                  />
-                </div>
-              ))}
-            </div>
-
+            <YouTubeLinksEditor value={mediaProfile.youtubeVideos} onChange={youtubeVideos=>setMediaProfile(previous=>({...previous,youtubeVideos}))}/>
+            <label className="flex gap-2 text-xs text-ug-muted"><input type="checkbox" checked={mediaProfile.originalsConfirmed} onChange={e=>setMediaProfile(previous=>({...previous,originalsConfirmed:e.target.checked}))}/>I confirm all tracks and videos are my original music.</label>
             <div className="flex justify-between pt-4">
               <button
                 type="button"

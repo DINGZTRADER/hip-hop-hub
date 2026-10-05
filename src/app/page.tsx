@@ -204,7 +204,7 @@ export default async function HomePage({ searchParams }: PageProps) {
               Drop Your Bars & Monetize Your Craft
             </h3>
             <p className="text-xs md:text-sm text-ug-muted mt-2 leading-relaxed">
-              Upload one original MP3 with no short preview, 3 YouTube videos, your 10s rotating hero video clip, and event flyers for free. Keep 80% on every mobile money download.
+              Upload up to 10 original MP3s with no short preview, 10 YouTube videos, your 10s rotating hero video clip, and event flyers for free. Keep 80% on every mobile money download.
             </p>
           </div>
 

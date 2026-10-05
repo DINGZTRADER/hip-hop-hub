@@ -3,6 +3,12 @@ import { requireDb, schema } from "@/db";
 import { Artist, Track, ServiceBooking, ArtistWallet, WalletTransaction } from "@/types";
 import { decodeCursor, encodeCursor, PaginatedResult } from "./pagination";
 import { AppError } from "./errors";
+import { verifiedPurchaseCount } from "./track-statistics";
+import { imageFromRow } from "./artist-images";
+import { applyArtistProfile } from "./artist-profile";
+import { validateArtistProfileInput } from "./artist-profile-input";
+import { lockMediaOwner } from "./media-quota";
+import { normalizeArtistVideos } from "./artist-media-policy";
 import { MAX_ARTIST_TRACKS } from "./artist-track-policy";
 
 const FREE_STORAGE_BYTES = 500 * 1024 * 1024;
@@ -14,7 +20,7 @@ function artistFromRow(row: typeof schema.artists.$inferSelect): Artist {
     dob: row.dob, bio: row.bio, region: row.region, subgenre: row.subgenre,
     socials: { instagram: row.socialInstagram, x: row.socialX, tiktok: row.socialTiktok,
       youtube: row.socialYoutube, facebook: row.socialFacebook },
-    phoneForBookings: row.phoneForBookings, bookingEmail: row.bookingEmail,
+    phoneForBookings: row.phoneForBookings, bookingEmail: row.bookingEmail, websiteUrl: row.websiteUrl,
     heroVideoMp4Url: row.heroVideoMp4Url, heroVideoDurationSecs: Number(row.heroVideoDurationSecs || 10),
     storageUsedBytes: row.storageUsedBytes, subscriptionTier: row.subscriptionTier,
     subscriptionExpiresAt: row.subscriptionExpiresAt?.toISOString(), isVerified: row.isVerified,
@@ -23,13 +29,13 @@ function artistFromRow(row: typeof schema.artists.$inferSelect): Artist {
   };
 }
 
-function trackFromRow(row: typeof schema.tracks.$inferSelect, stageName?: string): Track {
+function trackFromRow(row: typeof schema.tracks.$inferSelect, stageName?: string, purchaseCount = 0): Track {
   return {
     id: row.id, artistId: row.artistId, title: row.title, durationSeconds: row.durationSeconds,
     fileUrl: "", previewUrl: row.previewUrl.includes(".private.blob.vercel-storage.com/")
       ? `/api/tracks/${row.id}/preview` : row.previewUrl, filesizeBytes: row.filesizeBytes,
     priceUgx: row.priceUgx, priceUsd: Number(row.priceUsd), playCount: row.playCount,
-    downloadCount: row.downloadCount, isPublished: row.isPublished,
+    downloadCount: row.downloadCount, purchaseCount, isPublished: row.isPublished,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt?.toISOString(), artistStageName: stageName,
   };
@@ -61,7 +67,9 @@ export async function getArtists(params: GetArtistsParams): Promise<PaginatedRes
   const rows = await db.select().from(schema.artists).where(and(...filters))
     .orderBy(desc(schema.artists.createdAt), desc(schema.artists.id)).limit(limit + 1);
   const hasMore = rows.length > limit;
-  const data = rows.slice(0, limit).map(artistFromRow);
+  const pageRows = rows.slice(0, limit);
+  const portraits = pageRows.length ? await db.select().from(schema.artistImageAssets).where(and(inArray(schema.artistImageAssets.artistId, pageRows.map(row => row.id)), eq(schema.artistImageAssets.status, "CLAIMED"), eq(schema.artistImageAssets.purpose, "portrait"))) : [];
+  const data = pageRows.map(row => ({...artistFromRow(row), portrait: portraits.find(image => image.artistId === row.id) ? imageFromRow(portraits.find(image => image.artistId === row.id)!) : null}));
   const last = data[data.length - 1];
   return { data, limit, hasMore, nextCursor: hasMore && last ? encodeCursor({ id: last.id, createdAt: last.createdAt }) : null };
 }
@@ -77,16 +85,18 @@ export async function getRotatingHeroClips() {
 
 async function loadArtist(row: typeof schema.artists.$inferSelect): Promise<Artist> {
   const db = requireDb();
-  const [trackRows, videoRows, flyerRows, freestyleRows, serviceRows] = await Promise.all([
-    db.select().from(schema.tracks).where(and(eq(schema.tracks.artistId, row.id), isNull(schema.tracks.deletedAt), eq(schema.tracks.isPublished, true))),
+  const [trackRows, videoRows, flyerRows, freestyleRows, serviceRows, imageRows] = await Promise.all([
+    db.select({track:schema.tracks,purchaseCount:verifiedPurchaseCount()}).from(schema.tracks).where(and(eq(schema.tracks.artistId, row.id), isNull(schema.tracks.deletedAt), eq(schema.tracks.isPublished, true))),
     db.select().from(schema.artistYoutubeVideos).where(and(eq(schema.artistYoutubeVideos.artistId, row.id), isNull(schema.artistYoutubeVideos.deletedAt))),
     db.select().from(schema.eventFlyers).where(and(eq(schema.eventFlyers.artistId, row.id), isNull(schema.eventFlyers.deletedAt))),
     db.select().from(schema.freestyles).where(and(eq(schema.freestyles.artistId, row.id), isNull(schema.freestyles.deletedAt))),
     db.select().from(schema.artistServices).where(and(eq(schema.artistServices.artistId, row.id), isNull(schema.artistServices.deletedAt))),
+    db.select().from(schema.artistImageAssets).where(and(eq(schema.artistImageAssets.artistId, row.id), eq(schema.artistImageAssets.status, "CLAIMED"))).orderBy(schema.artistImageAssets.orderIndex),
   ]);
-  return { ...artistFromRow(row),
-    tracks: trackRows.map(t => trackFromRow(t, row.stageName)),
-    youtubeVideos: videoRows.map(v => ({ id: v.id, artistId: v.artistId, youtubeUrl: v.youtubeUrl,
+  return { ...artistFromRow(row), portrait: imageRows.find(image => image.purpose === "portrait") ? imageFromRow(imageRows.find(image => image.purpose === "portrait")!) : null,
+    photos: imageRows.filter(image => image.purpose === "gallery").map(imageFromRow),
+    tracks: trackRows.map(t => trackFromRow(t.track, row.stageName, t.purchaseCount)),
+    youtubeVideos: videoRows.sort((a,b) => a.orderIndex - b.orderIndex).map(v => ({ id: v.id, artistId: v.artistId, youtubeUrl: v.youtubeUrl,
       videoTitle: v.videoTitle, orderIndex: v.orderIndex, createdAt: v.createdAt.toISOString() })),
     eventFlyers: flyerRows.map(f => ({ id: f.id, artistId: f.artistId, title: f.title,
       eventDate: f.eventDate.toISOString(), venue: f.venue, city: f.city, flyerImageUrl: f.flyerImageUrl,
@@ -125,7 +135,7 @@ export async function updateArtistHeroVideo(artistId: string, mp4Url: string): P
 export async function addTrackToArtist(artistId: string, data: {
   title: string; durationSeconds: number; fileUrl: string; previewUrl?: string;
   filesizeBytes: number; priceUgx: number; priceUsd: number; isPublished: boolean;
-}): Promise<Track> {
+}, ownerUserId?: string): Promise<Track> {
   if (!data.fileUrl || (data.previewUrl !== undefined && data.previewUrl !== ""))
     throw new AppError("INVALID_TRACK", "Upload one full MP3 without a preview.", 400);
   if (!data.title.trim() || data.title.length > 255 || !Number.isSafeInteger(data.durationSeconds) ||
@@ -134,13 +144,14 @@ export async function addTrackToArtist(artistId: string, data: {
     throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
   const db = requireDb();
   return db.transaction(async tx => {
+    if (ownerUserId) await lockMediaOwner(tx, ownerUserId);
     const [artist] = await tx.select().from(schema.artists)
       .where(and(eq(schema.artists.id, artistId), isNull(schema.artists.deletedAt))).for("update").limit(1);
-    if (!artist) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
+    if (!artist || (ownerUserId && artist.userId !== ownerUserId)) throw new AppError("ARTIST_NOT_FOUND", "Artist not found", 404);
     const [countRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.tracks)
       .where(and(eq(schema.tracks.artistId, artistId), isNull(schema.tracks.deletedAt)));
     if (countRow.count >= MAX_ARTIST_TRACKS)
-      throw new AppError("TRACK_LIMIT_EXCEEDED", "One original MP3 is allowed for now", 400);
+      throw new AppError("TRACK_LIMIT_EXCEEDED", "Up to 10 original MP3 tracks are allowed", 400);
     const [upload] = await tx.select().from(schema.mediaUploads).where(and(
       eq(schema.mediaUploads.userId, artist.userId), eq(schema.mediaUploads.status, "UPLOADED"),
       eq(schema.mediaUploads.blobUrl, data.fileUrl))).for("update").limit(1);
@@ -164,14 +175,15 @@ export async function addTrackToArtist(artistId: string, data: {
 export async function registerArtist(data: {
   userId: string; stageName: string; realName: string; dob: string; bio?: string;
   region: string; subgenre: string; socials: { instagram?: string; x?: string; tiktok?: string; youtube?: string; facebook?: string };
-  phoneForBookings?: string; bookingEmail?: string; heroVideoMp4Url?: string; youtubeVideos?: string[];
+  phoneForBookings?: string; bookingEmail?: string; heroVideoMp4Url?: string; youtubeVideos?: Array<string | {youtubeUrl: string; videoTitle?: string}>;
+  websiteUrl?: string; portraitImageId?: string | null; galleryImageIds?: string[]; originalsConfirmed?: boolean;
   initialTracks: Array<{ title: string; durationSeconds: number; fileUrl: string; previewUrl?: string; filesizeBytes: number; priceUgx: number }>;
   eventFlyer?: { title: string; eventDate: string; venue: string; flyerImageUrl: string };
   freestyle?: { title: string; mediaUrl: string; mediaType: "AUDIO" | "VIDEO" };
   services?: Array<{ serviceName: string; description: string; priceUgx: number }>;
 }): Promise<Artist> {
-  if (!Array.isArray(data.initialTracks) || data.initialTracks.length !== MAX_ARTIST_TRACKS)
-    throw new AppError("TRACK_COUNT", "Provide exactly one MP3 track", 400);
+  if (!Array.isArray(data.initialTracks) || data.initialTracks.length < 1 || data.initialTracks.length > MAX_ARTIST_TRACKS)
+    throw new AppError("TRACK_COUNT", "Provide 1 to 10 original MP3 tracks", 400);
   if (!data.stageName?.trim() || !data.realName?.trim() || !data.dob ||
     Number.isNaN(Date.parse(data.dob)) || !data.socials)
     throw new AppError("INVALID_ARTIST", "Invalid artist profile.", 400);
@@ -184,8 +196,12 @@ export async function registerArtist(data: {
       (track.previewUrl !== undefined && track.previewUrl !== ""))
     throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
   }
+  const videos = normalizeArtistVideos(data.youtubeVideos || []);
+  const profileInput = validateArtistProfileInput({...data, youtubeVideos: videos});
   const db = requireDb();
   const artistId = await db.transaction(async tx => {
+    const existingArtist = await lockMediaOwner(tx, data.userId);
+    if (existingArtist) throw new AppError("ARTIST_EXISTS", "An artist profile already exists.", 409);
     const urls = data.initialTracks.map(t => t.fileUrl);
     if (new Set(urls).size !== urls.length) throw new AppError("INVALID_TRACK", "Use distinct files for every track.", 400);
     const uploads = await tx.select().from(schema.mediaUploads).where(and(
@@ -209,7 +225,7 @@ export async function registerArtist(data: {
       socialFacebook: data.socials.facebook, phoneForBookings: data.phoneForBookings,
       bookingEmail: data.bookingEmail, heroVideoMp4Url: data.heroVideoMp4Url,
       storageUsedBytes: totalBytes,
-    }).returning({ id: schema.artists.id });
+    }).returning();
     await tx.insert(schema.artistWallets).values({ artistId: artist.id });
     await tx.insert(schema.tracks).values(data.initialTracks.map(t => ({
       artistId: artist.id, title: t.title, durationSeconds: t.durationSeconds,
@@ -220,8 +236,7 @@ export async function registerArtist(data: {
       .where(inArray(schema.mediaUploads.id, uploads.map(upload => upload.id)));
     await tx.update(schema.users).set({ role: "ARTIST", updatedAt: new Date() })
       .where(eq(schema.users.id, data.userId));
-    if (data.youtubeVideos?.length) await tx.insert(schema.artistYoutubeVideos).values(
-      data.youtubeVideos.slice(0, 3).map((url, i) => ({ artistId: artist.id, youtubeUrl: url, orderIndex: i + 1 })));
+    await applyArtistProfile(tx, data.userId, artist, profileInput);
     if (data.eventFlyer) await tx.insert(schema.eventFlyers).values({
       artistId: artist.id, title: data.eventFlyer.title, eventDate: new Date(data.eventFlyer.eventDate),
       venue: data.eventFlyer.venue, flyerImageUrl: data.eventFlyer.flyerImageUrl,
@@ -296,11 +311,11 @@ export async function getTracks(params: {
     filters.push(or(lt(schema.tracks.createdAt, date),
       and(eq(schema.tracks.createdAt, date), lt(schema.tracks.id, cursor.id)))!);
   }
-  const rows = await db.select({ track: schema.tracks, stageName: schema.artists.stageName })
+  const rows = await db.select({ track: schema.tracks, stageName: schema.artists.stageName, purchaseCount: verifiedPurchaseCount() })
     .from(schema.tracks).innerJoin(schema.artists, eq(schema.tracks.artistId, schema.artists.id))
     .where(and(...filters)).orderBy(desc(schema.tracks.createdAt), desc(schema.tracks.id)).limit(limit + 1);
   const hasMore = rows.length > limit;
-  const data = rows.slice(0, limit).map(r => trackFromRow(r.track, r.stageName));
+  const data = rows.slice(0, limit).map(r => trackFromRow(r.track, r.stageName, r.purchaseCount));
   const last = data[data.length - 1];
   return { data, limit, hasMore, nextCursor: hasMore && last ? encodeCursor({ id: last.id, createdAt: last.createdAt }) : null };
 }

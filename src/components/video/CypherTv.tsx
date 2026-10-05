@@ -10,61 +10,7 @@ const SLOT_SECONDS = 60;
 const DEFAULT_VOLUME = 70;
 const STORAGE_KEY = "hiphopug_cypher_tv_v1";
 
-type YouTubePlayer = {
-  destroy(): void;
-  getVideoData(): { video_id: string };
-  loadVideoById(id: string, startSeconds: number): void;
-  mute(): void;
-  pauseVideo(): void;
-  setVolume(volume: number): void;
-  unMute(): void;
-};
-
-type YouTubeApi = {
-  Player: new (element: HTMLElement, options: {
-    width: string;
-    height: string;
-    videoId: string;
-    playerVars: Record<string, number | string>;
-    events: {
-      onReady: (event: { target: YouTubePlayer }) => void;
-      onStateChange: (event: { data: number }) => void;
-      onAutoplayBlocked: () => void;
-      onError: () => void;
-    };
-  }) => YouTubePlayer;
-};
-
-declare global {
-  interface Window {
-    YT?: YouTubeApi;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let apiPromise: Promise<YouTubeApi> | undefined;
-
-function loadYouTubeApi(): Promise<YouTubeApi> {
-  if (window.YT?.Player) return Promise.resolve(window.YT);
-  if (apiPromise) return apiPromise;
-
-  apiPromise = new Promise<YouTubeApi>((resolve, reject) => {
-    const script = document.createElement("script");
-    const previousReady = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      previousReady?.();
-      if (window.YT?.Player) resolve(window.YT);
-      else reject(new Error("YouTube player API did not initialize"));
-    };
-    script.onerror = () => {
-      apiPromise = undefined;
-      reject(new Error("YouTube player API could not load"));
-    };
-    script.src = "https://www.youtube.com/iframe_api";
-    document.head.appendChild(script);
-  });
-  return apiPromise;
-}
+import {loadYouTubeApi, type YouTubePlayer} from "@/lib/youtube-iframe";
 
 export function CypherTv() {
   const [extras, setExtras] = useState<string[]>([]);

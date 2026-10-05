@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {renderToStaticMarkup} from 'react-dom/server';import React from 'react';import {loadSource} from './load-source.mjs';
+const aliases={'lucide-react':new Proxy({},{get:()=>()=>null})};
+test('profile editor exposes image constraints, public contacts and ten videos',()=>{const c=loadSource('src/components/artist/ArtistProfileEditor.tsx',aliases);const html=renderToStaticMarkup(React.createElement(c.ArtistProfileEditor,{value:c.emptyArtistProfileDraft(),onChange:()=>{},onBusyChange:()=>{},onError:()=>{}}));assert.match(html,/2 MB/);assert.match(html,/10 gallery/);assert.match(html,/Booking email/);assert.match(html,/10 original YouTube/);});
