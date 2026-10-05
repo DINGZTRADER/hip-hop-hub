@@ -72,7 +72,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const playTrack = (track: Track) => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !track.previewUrl) return;
 
     if (currentTrack?.id === track.id) {
       if (isPlaying) {

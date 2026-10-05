@@ -58,12 +58,14 @@ export function TrackCrate({ tracks, stageName }: TrackCrateProps) {
 
                 <button
                   onClick={() => playTrack(track)}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition shrink-0 ${
+                  disabled={!track.previewUrl}
+                  title={track.previewUrl ? "Play preview" : "Preview unavailable"}
+                  aria-label={track.previewUrl ? `${isThisTrackPlaying ? "Pause" : "Play"} preview of ${track.title}` : `Preview unavailable for ${track.title}`}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center transition shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
                     isThisTrackPlaying
                       ? "bg-ug-gold text-black shadow-lg"
                       : "bg-ug-border hover:bg-ug-gold hover:text-black text-white"
                   }`}
-                  aria-label={isThisTrackPlaying ? "Pause preview" : "Play preview"}
                 >
                   {isThisTrackPlaying ? (
                     <Pause className="w-4 h-4 fill-current" />

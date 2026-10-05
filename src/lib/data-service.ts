@@ -159,13 +159,13 @@ export async function registerArtist(data: {
   userId: string; stageName: string; realName: string; dob: string; bio?: string;
   region: string; subgenre: string; socials: { instagram?: string; x?: string; tiktok?: string; youtube?: string; facebook?: string };
   phoneForBookings?: string; bookingEmail?: string; heroVideoMp4Url?: string; youtubeVideos?: string[];
-  initialTracks: Array<{ title: string; durationSeconds: number; fileUrl: string; previewUrl: string; filesizeBytes: number; priceUgx: number }>;
+  initialTracks: Array<{ title: string; durationSeconds: number; fileUrl: string; previewUrl?: string; filesizeBytes: number; priceUgx: number }>;
   eventFlyer?: { title: string; eventDate: string; venue: string; flyerImageUrl: string };
   freestyle?: { title: string; mediaUrl: string; mediaType: "AUDIO" | "VIDEO" };
   services?: Array<{ serviceName: string; description: string; priceUgx: number }>;
 }): Promise<Artist> {
-  if (!Array.isArray(data.initialTracks) || data.initialTracks.length < 3 || data.initialTracks.length > 10)
-    throw new AppError("TRACK_COUNT", "Provide 3 to 10 tracks", 400);
+  if (!Array.isArray(data.initialTracks) || data.initialTracks.length !== 1)
+    throw new AppError("TRACK_COUNT", "Provide exactly one MP3 track", 400);
   if (!data.stageName?.trim() || !data.realName?.trim() || !data.dob ||
     Number.isNaN(Date.parse(data.dob)) || !data.socials)
     throw new AppError("INVALID_ARTIST", "Invalid artist profile.", 400);
@@ -174,23 +174,22 @@ export async function registerArtist(data: {
       !Number.isSafeInteger(track.durationSeconds) || track.durationSeconds <= 0 ||
       !Number.isSafeInteger(track.filesizeBytes) || track.filesizeBytes <= 0 ||
       !Number.isSafeInteger(track.priceUgx) || track.priceUgx < 1000 ||
-      typeof track.fileUrl !== "string" || typeof track.previewUrl !== "string")
+      typeof track.fileUrl !== "string" || !track.fileUrl ||
+      (track.previewUrl !== undefined && track.previewUrl !== ""))
     throw new AppError("INVALID_TRACK", "Invalid track metadata.", 400);
   }
   const db = requireDb();
   const artistId = await db.transaction(async tx => {
-    const urls = data.initialTracks.flatMap(t => [t.fileUrl, t.previewUrl]);
-    if (new Set(urls).size !== urls.length) throw new AppError("INVALID_TRACK", "Use distinct files for every master and preview.", 400);
+    const urls = data.initialTracks.map(t => t.fileUrl);
+    if (new Set(urls).size !== urls.length) throw new AppError("INVALID_TRACK", "Use distinct files for every track.", 400);
     const uploads = await tx.select().from(schema.mediaUploads).where(and(
       eq(schema.mediaUploads.userId, data.userId), eq(schema.mediaUploads.status, "UPLOADED"),
       inArray(schema.mediaUploads.blobUrl, urls))).for("update");
-    if (uploads.length !== urls.length) throw new AppError("INVALID_TRACK", "Upload every master and preview MP3 first.", 400);
+    if (uploads.length !== urls.length) throw new AppError("INVALID_TRACK", "Upload the full MP3 first.", 400);
     const byUrl = new Map(uploads.map(upload => [upload.blobUrl, upload]));
     for (const track of data.initialTracks) {
       const master = byUrl.get(track.fileUrl);
-      const preview = byUrl.get(track.previewUrl);
-      if (!master || master.kind !== "master" || master.actualBytes !== track.filesizeBytes ||
-        !preview || preview.kind !== "preview" || !preview.actualBytes)
+      if (!master || master.kind !== "master" || master.actualBytes !== track.filesizeBytes)
         throw new AppError("INVALID_TRACK", "Track uploads do not match the submitted files.", 400);
     }
     const totalBytes = uploads.reduce((n, upload) => n + (upload.actualBytes || 0), 0);
@@ -208,7 +207,7 @@ export async function registerArtist(data: {
     await tx.insert(schema.artistWallets).values({ artistId: artist.id });
     await tx.insert(schema.tracks).values(data.initialTracks.map(t => ({
       artistId: artist.id, title: t.title, durationSeconds: t.durationSeconds,
-      fileUrl: t.fileUrl, previewUrl: t.previewUrl, filesizeBytes: t.filesizeBytes,
+      fileUrl: t.fileUrl, previewUrl: "", filesizeBytes: t.filesizeBytes,
       priceUgx: t.priceUgx,
     })));
     await tx.update(schema.mediaUploads).set({ status: "CLAIMED" })
