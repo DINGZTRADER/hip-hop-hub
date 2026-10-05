@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { uploadPresigned } from "@vercel/blob/client";
 
 export type UploadedMp3 = { fileUrl: string; filesizeBytes: number; durationSeconds: number; masterUploadId: string; masterName: string };
@@ -35,6 +35,8 @@ export function Mp3Upload({value, onUploaded, onBusyChange, onError}: {
 }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [selectedName, setSelectedName] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   const upload = async (file: File) => {
     if (busy) return;
     onError("");
@@ -44,6 +46,7 @@ export function Mp3Upload({value, onUploaded, onBusyChange, onError}: {
     if (file.size < 1024 || file.size > 50 * 1048576) {
       onError("Full MP3 must be between 1 KB and 50 MB."); return;
     }
+    setSelectedName(file.name);
     setBusy(true); onBusyChange(true); setProgress(0);
     let uploadId = "";
     const release = async (id: string) => {
@@ -75,9 +78,19 @@ export function Mp3Upload({value, onUploaded, onBusyChange, onError}: {
     <label className="block text-xs font-semibold text-white">
       Full MP3 (private, up to 50 MB)
       <input type="file" accept=".mp3,audio/mpeg" disabled={busy}
+        ref={fileInput} tabIndex={-1}
         onChange={event => {const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file);}}
-        className="mt-1 block w-full rounded-xl border border-ug-border bg-ug-surface px-3 py-2 text-xs text-white file:mr-3 file:rounded-lg file:border-0 file:bg-ug-gold file:px-3 file:py-2 file:font-bold file:text-black" />
+        className="sr-only" />
     </label>
+    <div className="mt-1 flex items-center gap-3 rounded-xl border border-ug-border bg-ug-surface px-3 py-2">
+      <button type="button" disabled={busy} onClick={() => fileInput.current?.click()}
+        className="shrink-0 rounded-lg bg-ug-gold px-3 py-2 text-xs font-bold text-black disabled:opacity-50">
+        {value.masterName ? "Replace MP3" : "Choose MP3"}
+      </button>
+      <span className="min-w-0 break-all text-xs text-white">
+        {busy ? selectedName : value.masterName || "No MP3 uploaded yet"}
+      </span>
+    </div>
     {value.masterName && <p className="mt-1 text-xs text-emerald-400">Uploaded: {value.masterName} ({(value.filesizeBytes / 1048576).toFixed(1)} MB)</p>}
     {busy && <p role="status" className="text-xs text-ug-gold">Uploading full MP3: {progress}%</p>}
   </div>;
