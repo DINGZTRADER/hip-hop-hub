@@ -72,7 +72,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const playTrack = (track: Track) => {
-    if (!audioRef.current || !track.previewUrl) return;
+    const source = track.playbackUrl || track.previewUrl;
+    if (!audioRef.current || !source) return;
 
     if (currentTrack?.id === track.id) {
       if (isPlaying) {
@@ -84,11 +85,13 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     }
 
     setCurrentTrack(track);
-    audioRef.current.src = track.previewUrl;
+    setCurrentTime(0);
+    setDuration(0);
+    audioRef.current.src = source;
     audioRef.current.play().catch((err) => {
       console.warn("Audio autoplay blocked or failed:", err);
     });
-    setIsPlaying(true);
+
   };
 
   const pauseTrack = () => {
@@ -104,7 +107,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       pauseTrack();
     } else {
       audioRef.current.play().catch(console.error);
-      setIsPlaying(true);
+
     }
   };
 

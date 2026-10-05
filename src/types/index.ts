@@ -63,6 +63,7 @@ export interface Track {
   durationSeconds: number;
   fileUrl: string;
   previewUrl: string;
+  playbackUrl?: string; // Authenticated owner-only full MP3 stream
   filesizeBytes: number;
   priceUgx: number;
   priceUsd: number;

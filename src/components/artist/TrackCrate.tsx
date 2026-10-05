@@ -58,9 +58,9 @@ export function TrackCrate({ tracks, stageName }: TrackCrateProps) {
 
                 <button
                   onClick={() => playTrack(track)}
-                  disabled={!track.previewUrl}
-                  title={track.previewUrl ? "Play preview" : "Preview unavailable"}
-                  aria-label={track.previewUrl ? `${isThisTrackPlaying ? "Pause" : "Play"} preview of ${track.title}` : `Preview unavailable for ${track.title}`}
+                  disabled={!(track.playbackUrl || track.previewUrl)}
+                  title={track.playbackUrl ? "Play your full MP3" : track.previewUrl ? "Play preview" : "Preview unavailable"}
+                  aria-label={track.playbackUrl ? `${isThisTrackPlaying ? "Pause" : "Play"} ${track.title}` : track.previewUrl ? `${isThisTrackPlaying ? "Pause" : "Play"} preview of ${track.title}` : `Preview unavailable for ${track.title}`}
                   className={`w-10 h-10 rounded-full flex items-center justify-center transition shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
                     isThisTrackPlaying
                       ? "bg-ug-gold text-black shadow-lg"

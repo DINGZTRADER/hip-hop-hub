@@ -1,4 +1,5 @@
 import React from "react";
+import { getSession } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { getArtistByStageName } from "@/lib/data-service";
 import { VirtualDjBooth } from "@/components/artist/VirtualDjBooth";
@@ -21,7 +22,7 @@ interface ArtistPageProps {
   params: Promise<{ stageName: string }>;
 }
 
-export const revalidate = 60; // ISR cache
+export const dynamic = "force-dynamic";
 
 export default async function ArtistZonePage({ params }: ArtistPageProps) {
   const { stageName } = await params;
@@ -33,6 +34,11 @@ export default async function ArtistZonePage({ params }: ArtistPageProps) {
   if (!artist) {
     notFound();
   }
+
+  const session = await getSession();
+  const playbackArtist = session?.userId === artist.userId
+    ? { ...artist, tracks: artist.tracks?.map(track => ({ ...track, playbackUrl: `/api/tracks/${track.id}/stream` })) }
+    : artist;
 
   const birthYear = artist.dob ? new Date(artist.dob).getFullYear() : "";
 
@@ -160,12 +166,12 @@ export default async function ArtistZonePage({ params }: ArtistPageProps) {
       <div className="max-w-7xl mx-auto px-4 lg:px-8 space-y-12">
         {/* 1. Virtual DJ Booth / Turntable Console */}
         <section>
-          <VirtualDjBooth artist={artist} />
+          <VirtualDjBooth artist={playbackArtist} />
         </section>
 
         {/* 2. The Music Crate (MP3 Songs to buy) */}
         <section>
-          <TrackCrate tracks={artist.tracks || []} stageName={artist.stageName} />
+          <TrackCrate tracks={playbackArtist.tracks || []} stageName={artist.stageName} />
         </section>
 
         {/* 3. Official YouTube Visuals (3 videos) */}

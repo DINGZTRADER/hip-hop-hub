@@ -21,7 +21,7 @@ export function VirtualDjBooth({ artist }: VirtualDjBoothProps) {
   const isCurrentArtistPlaying = isPlaying && currentTrack?.artistStageName === artist.stageName;
 
   const handleTurntableClick = () => {
-    if (activeTrack) {
+    if (activeTrack && (activeTrack.playbackUrl || activeTrack.previewUrl)) {
       if (currentTrack?.id === activeTrack.id) {
         togglePlay();
       } else {
@@ -73,10 +73,13 @@ export function VirtualDjBooth({ artist }: VirtualDjBoothProps) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-8">
         {/* Left: Interactive Vinyl Platter (Reference to DJ decks) */}
         <div className="lg:col-span-7 flex flex-col items-center justify-center">
-          <div
+          <button
+            type="button"
+            disabled={!(activeTrack?.playbackUrl || activeTrack?.previewUrl)}
+            aria-label={activeTrack?.playbackUrl || activeTrack?.previewUrl ? `${isCurrentArtistPlaying ? "Pause" : "Play"} ${activeTrack?.title}` : "Preview unavailable"}
             onClick={handleTurntableClick}
             className="cursor-pointer relative w-64 h-64 md:w-80 md:h-80 rounded-full vinyl-grooves border-8 border-[#222533] shadow-[0_0_50px_rgba(0,0,0,0.8)] flex items-center justify-center group transition transform hover:scale-102"
-            title="Click vinyl to Play / Pause"
+            title={activeTrack?.playbackUrl ? "Play / pause your full MP3" : activeTrack?.previewUrl ? "Play / pause preview" : "Preview unavailable"}
           >
             {/* Spinning Vinyl Texture & Center Label */}
             <div
@@ -114,7 +117,7 @@ export function VirtualDjBooth({ artist }: VirtualDjBoothProps) {
                 )}
               </div>
             </div>
-          </div>
+          </button>
 
           {/* RPM Selector & Pitch Controls */}
           <div className="flex items-center gap-6 mt-6">
@@ -170,7 +173,7 @@ export function VirtualDjBooth({ artist }: VirtualDjBoothProps) {
               {activeTrack?.title || "Select a Track from the Crate"}
             </h4>
             <p className="text-xs text-ug-muted mt-1">
-              Length: {activeTrack ? `${Math.floor(activeTrack.durationSeconds / 60)}:${(activeTrack.durationSeconds % 60).toString().padStart(2, "0")}` : "--:--"} • Format: 320kbps MP3 Master
+              Length: {activeTrack ? `${Math.floor(activeTrack.durationSeconds / 60)}:${(activeTrack.durationSeconds % 60).toString().padStart(2, "0")}` : "--:--"} • Format: MP3 Master
             </p>
 
             {/* Audio Waveform Graphic */}

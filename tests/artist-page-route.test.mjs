@@ -6,12 +6,13 @@ import ts from 'typescript';
 
 const require = createRequire(import.meta.url);
 const missing = new Error('not found');
-function page() {
+function page(artist = null, session = null) {
   const lookups = [];
   const loaded = new Module(import.meta.url);
   loaded.require = id => {
+    if (id === '@/lib/auth') return {getSession: async () => session};
     if (id === 'next/navigation') return {notFound: () => {throw missing;}};
-    if (id === '@/lib/data-service') return {getArtistByStageName: async name => {lookups.push(name); return null;}};
+    if (id === '@/lib/data-service') return {getArtistByStageName: async name => {lookups.push(name); return artist;}};
     if (id.startsWith('@/components/')) return {};
     if (id === 'lucide-react' || id === 'next/link') return {};
     return require(id);
@@ -31,3 +32,18 @@ test('malformed encoded artist names return not found without a database lookup'
   await assert.rejects(fixture.render({params: Promise.resolve({stageName: '%ZZ'})}), error => error === missing);
   assert.deepEqual(fixture.lookups, []);
 });
+
+ test('only the owner page receives a full MP3 playback URL, without mutating public artist data', async () => {
+  const artist = {userId: 'owner', stageName: 'Artist', socials: {}, storageUsedBytes: 0, youtubeVideos: [], services: [], tracks: [{id: 'track', previewUrl: ''}]};
+  function boothProps(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (node.props?.artist) return node.props.artist;
+    for (const child of [node.props?.children].flat()) {const found = boothProps(child); if (found) return found;}
+    return null;
+  }
+  for (const session of [null, {userId: 'other'}, {userId: 'owner'}]) {
+    const result = await page(artist, session).render({params: Promise.resolve({stageName: 'Artist'})});
+    assert.equal(boothProps(result).tracks[0].playbackUrl, session?.userId === 'owner' ? '/api/tracks/track/stream' : undefined);
+  }
+  assert.equal(artist.tracks[0].playbackUrl, undefined);
+ });
