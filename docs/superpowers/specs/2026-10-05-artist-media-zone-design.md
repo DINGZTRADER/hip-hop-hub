@@ -1,6 +1,6 @@
 # Artist media zone and global catalog limits
 
-Status: layout and limits approved in conversation; written spec awaiting review.
+Status: layout, limits, and written spec approved in conversation.
 
 ## Outcome
 
