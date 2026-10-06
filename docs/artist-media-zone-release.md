@@ -1,6 +1,6 @@
 # Artist stage and media release
 
-Prepared 5 October 2026 for Hip Hop Hub. Implementation is complete locally; production activation remains pending.
+Prepared 6 October 2026 for Hip Hop Hub. Implementation is complete locally; production activation remains pending.
 
 ## Result
 
@@ -12,7 +12,7 @@ Buy totals count `COMPLETED` purchases. Failed, pending and refunded payments do
 
 ## Evidence
 
-- Final unit/component suite: **45 passed, zero failed**. New regression tests reproduce and prevent stale upload callbacks, unrelated dashboard changes discarding profile drafts, image draft removal, and same-track play-session expiry/replay failures.
+- Final unit/component suite: **48 passed, zero failed**. New regression tests reproduce and prevent stale upload callbacks, unrelated dashboard changes discarding profile drafts, image draft removal, and same-track play-session expiry/replay failures.
 - TypeScript checks and `next build` passed on the final source. `git diff --check` passed.
 - Disposable Neon schema: additive migration applied twice; concurrent tenth-track publication accepts one and rejects the eleventh; cross-media reservations serialize at the storage limit; image/profile claims persist and reload correctly.
 - Database counter checks: simultaneous qualified completions count once; expired tickets fail; completed purchases count separately from repeat downloads.
@@ -40,11 +40,11 @@ No review findings were deferred. No second review was dispatched after the fix 
 
 Target: Vercel project `prj_CFc3imGteBGB2cO2nlfX3tbY66uO`, production domain `hip-hop-hub-vki9.vercel.app`. The local database connection was checked against the exact production artist and Change IDs before isolated testing. Environment-list access through the Vercel connector returned permission 403, so required production configuration must be verified during rollout without exposing secret values.
 
-Automatic approval review rejected creating production `CRON_SECRET`: “This creates a new production credential and persistent environment configuration on Vercel; the approved feature plan does not specifically authorize provisioning this secret or its production scope.” No alternative tool was used to bypass that rejection. Explicit approval for that production credential is the outstanding release gate.
+Automatic approval review rejected creating production `CRON_SECRET`: “This creates a new production credential and persistent environment configuration on Vercel; the approved feature plan does not specifically authorize provisioning this secret or its production scope.” No alternative tool was used to bypass that rejection. The user subsequently explicitly approved the production credential. The connector then returned HTTP 403 for insufficient production-environment permissions. On 6 October, a browser metadata check found that CRON_SECRET already exists for Production (added 29 September), and BLOB_STORE_ID is configured for Production. The exact BLOB_READ_WRITE_TOKEN name is absent, but the installed Blob SDK supports OIDC with BLOB_STORE_ID. No new secret was created, rotated, revealed, or entered through the browser. The existing configuration resolves the credential gate.
 
-After that specific approval:
+Approved rollout:
 
-1. Generate a strong random `CRON_SECRET`, store it only as the production Vercel environment secret, and verify existing private Blob configuration. The credential authenticates the daily cleanup endpoint; never include it in logs or client bundles.
+1. Reuse the existing production CRON_SECRET and OIDC private Blob configuration. The credential authenticates the daily cleanup endpoint; never include it in logs or client bundles.
 2. Recheck Vercel project and database identity. Run `scripts/migrate-artist-media-zone.mjs` with the verified production `DATABASE_URL`. Use the additive SQL migration; do not reseed or run destructive schema push.
 3. Deploy the exact tested commit. `vercel.json` schedules `/api/maintenance/artist-images` daily at 03:00 UTC. Cleanup removes expired unclaimed uploads and retired assets, and retains published claimed photos.
 4. Verify deployment READY and its commit/domain mapping. Verify authenticated My Hub save/reload, owner Change playback and qualified play count, signed-out rendering, private image authorization, and buy statistics. Use disposable fixtures for boundary checks.
@@ -59,3 +59,7 @@ Last recorded working production release: `c18b93802872cadc2ba7c2ab5fc1b294c577d
 - Published image responses revalidate after 60 seconds so retired photos do not remain indefinitely cached.
 - Qualified signed-in listening and completed-purchase totals implement the counter rules above; this does not claim strict playback fraud detection.
 - Held schema-dependent implementation together before release rather than deploying partial task commits. The branch and checkout remain preserved while the credential approval is pending.
+
+## Booking-rate editing addendum
+
+The artist can edit existing service rates in My Hub, in whole UGX, and save them atomically through the owner-only profile PATCH. The server validates service ownership before changing profile/media state, rejects duplicate IDs, deleted/foreign services, invalid rates and integer overflow, and serializes changes with the artist lock. New bookings obtain their quoted price from the saved service; existing quoted_price_ugx values remain unchanged. No service is created or deleted by a rate edit. Tests cover validation, ownership, editor rendering, database save/reload, authoritative new quotes, unchanged existing quotes, and no partial changes on a rejected service. This addendum requires no new columns.

@@ -6,9 +6,16 @@ export type ArtistProfileInput = {
   bio?: string | null; phoneForBookings?: string | null; bookingEmail?: string | null; websiteUrl?: string | null;
   portraitImageId?: string | null; galleryImageIds?: string[];
   youtubeVideos?: ArtistVideoInput[]; originalsConfirmed?: boolean;
+  bookingRates?: Array<{serviceId:string;priceUgx:number}>;
 };
 export function validateArtistProfileInput(input: Record<string, unknown>): ArtistProfileInput {
   const output: ArtistProfileInput = {};
+  if (Object.hasOwn(input, "bookingRates")) {
+    const rates=input.bookingRates;
+    if(!Array.isArray(rates)||rates.length>50||rates.some(rate=>!rate||typeof rate.serviceId!=="string"||!isUuid(rate.serviceId)||!Number.isSafeInteger(rate.priceUgx)||rate.priceUgx<1||rate.priceUgx>2147483647)||new Set(rates.map(rate=>rate.serviceId)).size!==rates.length)
+      throw new AppError("INVALID_RATE", "Use distinct booking services and whole UGX rates between 1 and 2,147,483,647.",400);
+    output.bookingRates=rates.map(rate=>({serviceId:rate.serviceId,priceUgx:rate.priceUgx}));
+  }
   for (const key of ["bio", "phoneForBookings", "bookingEmail", "websiteUrl"] as const) {
     if (!Object.hasOwn(input, key)) continue;
     const value = input[key];

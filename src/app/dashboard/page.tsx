@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Mp3Upload } from "@/components/audio/Mp3Upload";
+import { BookingRatesEditor } from "@/components/artist/BookingRatesEditor";
 import { ArtistProfileManager } from "@/components/artist/ArtistProfileManager";
 import { storageQuotaBytes } from "@/lib/artist-media-policy";
 import { MAX_ARTIST_TRACKS } from "@/lib/artist-track-policy";
@@ -340,6 +341,7 @@ export default function ArtistDashboardPage() {
       </section>
 
       {currentArtist && <ArtistProfileManager artist={currentArtist} onSaved={setArtist}/>}
+      {currentArtist && <BookingRatesEditor artist={currentArtist} onSaved={setArtist}/>}
       {/* Tracks Management Table */}
       <section className="bg-ug-surface rounded-3xl border border-ug-border p-6 md:p-8 shadow-xl mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-ug-border gap-4">

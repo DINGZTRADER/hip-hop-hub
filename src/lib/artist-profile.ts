@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { requireDb, schema } from "@/db";
 import { AppError } from "./errors";
 import { ArtistProfileInput, validateArtistProfileInput } from "./artist-profile-input";
@@ -6,6 +6,11 @@ import { ArtistTransaction, lockMediaOwner } from "./media-quota";
 import { storageQuotaBytes } from "./artist-media-policy";
 
 export async function applyArtistProfile(tx: ArtistTransaction, userId: string, artist: typeof schema.artists.$inferSelect, input: ArtistProfileInput) {
+  if(input.bookingRates?.length){
+    const ids=input.bookingRates.map(rate=>rate.serviceId);
+    const owned=await tx.select({id:schema.artistServices.id}).from(schema.artistServices).where(and(eq(schema.artistServices.artistId,artist.id),inArray(schema.artistServices.id,ids),isNull(schema.artistServices.deletedAt))).for("update");
+    if(owned.length!==ids.length)throw new AppError("INVALID_SERVICE","Choose your own active booking services.",400);
+  }
   const current = await tx.select().from(schema.artistImageAssets).where(and(eq(schema.artistImageAssets.artistId, artist.id), eq(schema.artistImageAssets.status, "CLAIMED"))).for("update");
   const portraitId = input.portraitImageId === undefined ? current.find(row => row.purpose === "portrait")?.id : input.portraitImageId;
   const galleryIds = input.galleryImageIds ?? current.filter(row => row.purpose === "gallery").sort((a, b) => a.orderIndex - b.orderIndex).map(row => row.id);
@@ -28,6 +33,7 @@ export async function applyArtistProfile(tx: ArtistTransaction, userId: string, 
     if (input.youtubeVideos.length) await tx.insert(schema.artistYoutubeVideos).values(input.youtubeVideos.map((video, i) => ({ artistId: artist.id, ...video, orderIndex: i + 1 })));
   }
   const fields = Object.fromEntries(["bio", "phoneForBookings", "bookingEmail", "websiteUrl"].filter(key => Object.hasOwn(input, key)).map(key => [key, input[key as keyof ArtistProfileInput]]));
+  for(const rate of input.bookingRates||[])await tx.update(schema.artistServices).set({priceUgx:rate.priceUgx,updatedAt:new Date()}).where(and(eq(schema.artistServices.id,rate.serviceId),eq(schema.artistServices.artistId,artist.id),isNull(schema.artistServices.deletedAt)));
   await tx.update(schema.artists).set({ ...fields, storageUsedBytes: bytes, updatedAt: new Date() }).where(eq(schema.artists.id, artist.id));
 }
 export async function updateArtistProfile(userId: string, artistId: string, raw: Record<string, unknown>) {
